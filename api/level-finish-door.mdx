@@ -1,0 +1,202 @@
+---
+title: LevelFinishedDoor
+description: Exit door that opens when level objectives are complete, allowing progression to the next level.
+---
+
+The `LevelFinishedDoor` is an interactive door that displays visual feedback and handles level transitions when opened.
+
+## Class signature
+
+```gdscript level_finish_door.gd:1
+extends Node2D
+
+class_name LevelFinishedDoor
+```
+
+## Export variables
+
+<ParamField path="player" type="CharacterBody2D" required>
+  Reference to the player character for proximity detection
+  
+  ```gdscript level_finish_door.gd:5
+  @export var player: CharacterBody2D
+  ```
+</ParamField>
+
+<ParamField path="nextLevel" type="String" required>
+  Path to the next level scene
+  
+  ```gdscript level_finish_door.gd:6
+  @export var nextLevel : String
+  ```
+  
+  Example: `"res://Scenes/level_2.tscn"`
+</ParamField>
+
+## Child nodes
+
+```gdscript level_finish_door.gd:8
+@onready var area: Area2D = $Area2D
+@onready var sprite: Sprite2D = $Sprite2D
+@onready var label: Label = $Label
+```
+
+<ResponseField name="area" type="Area2D">
+  Collision area for detecting player proximity.
+</ResponseField>
+
+<ResponseField name="sprite" type="Sprite2D">
+  Door sprite with two frames:
+  - Frame 0: Closed door
+  - Frame 1: Open door
+</ResponseField>
+
+<ResponseField name="label" type="Label">
+  UI label prompting player interaction ("Press F to enter").
+</ResponseField>
+
+## Variables
+
+```gdscript level_finish_door.gd:12
+var isOpen : bool = false
+```
+
+<ResponseField name="isOpen" type="bool">
+  Door state controlled by the LevelManager. When `true`, the door is open and interactable.
+</ResponseField>
+
+<Note>
+  The `isOpen` variable is set by the LevelManager, not by the door itself.
+</Note>
+
+## Methods
+
+### _process()
+
+Handles door visuals and player interaction:
+
+```gdscript level_finish_door.gd:20
+func _process(_delta: float) -> void:
+    # Update sprite based on door state
+    if isOpen:
+        sprite.frame = 1
+    else:
+        sprite.frame = 0
+    
+    # Hide label by default
+    label.hide()
+    
+    # Check if player is near the door
+    if not area.overlaps_body(player):
+        return
+    
+    # Show interaction prompt
+    label.show()
+    
+    # Handle door interaction
+    if not isOpen and Input.is_action_just_pressed("interact"):
+        AudioManager.play_sound(AudioResource.SoundEffect.DOOR_KNOCK)
+    elif isOpen and Input.is_action_just_pressed("interact") and player.is_on_floor():
+        GameManager.load_scene(nextLevel)
+```
+
+**Behavior:**
+
+1. **Visual feedback**: Sprite frame changes based on `isOpen` state
+2. **Proximity detection**: Label appears when player enters the Area2D
+3. **Locked door**: Plays knock sound when player tries to interact
+4. **Open door**: Loads next level when player interacts (must be grounded)
+
+<Warning>
+  The player must be `is_on_floor()` to enter the door. This prevents accidental level transitions during jumps.
+</Warning>
+
+## Usage
+
+Add a LevelFinishedDoor to your level scene:
+
+```gdscript
+# Example scene structure
+Level
+├── LevelManager
+│   └── door: -> LevelFinishedDoor
+├── Player
+└── LevelFinishedDoor
+    ├── Area2D (for proximity detection)
+    ├── Sprite2D (door graphics)
+    └── Label (interaction prompt)
+```
+
+<Steps>
+  <Step title="Add LevelFinishedDoor node">
+    Instantiate the level_finish_door.tscn scene in your level.
+  </Step>
+  
+  <Step title="Assign player reference">
+    Drag the player node to the `player` export variable.
+  </Step>
+  
+  <Step title="Set next level path">
+    Enter the path to the next level in the `nextLevel` field:
+    ```
+    res://Scenes/level_2.tscn
+    ```
+  </Step>
+  
+  <Step title="Connect to LevelManager">
+    In the LevelManager, assign this door to the `door` export variable.
+  </Step>
+</Steps>
+
+## Door states
+
+<Tabs>
+  <Tab title="Locked (isOpen = false)">
+    - Sprite shows frame 0 (closed)
+    - Interaction plays knock sound
+    - Level transition disabled
+  </Tab>
+  
+  <Tab title="Open (isOpen = true)">
+    - Sprite shows frame 1 (open)
+    - Interaction loads next level
+    - Requires player to be grounded
+  </Tab>
+</Tabs>
+
+## Input actions
+
+The door uses the `interact` input action (default: F key):
+
+```ini project.godot
+interact={
+"events": [Object(InputEventKey, "keycode": 70)]
+}
+```
+
+## Audio feedback
+
+When the player tries to open a locked door:
+
+```gdscript level_finish_door.gd:34
+if not isOpen and Input.is_action_just_pressed("interact"):
+    AudioManager.play_sound(AudioResource.SoundEffect.DOOR_KNOCK)
+```
+
+<Tip>
+  The knock sound provides immediate feedback that the door is locked, guiding players toward completing objectives.
+</Tip>
+
+## Level progression
+
+When entering the open door:
+
+```gdscript level_finish_door.gd:36
+GameManager.load_scene(nextLevel)
+```
+
+This uses GameManager's scene loading function, which internally calls:
+
+```gdscript
+get_tree().change_scene_to_file(path)
+```

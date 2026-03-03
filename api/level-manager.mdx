@@ -1,0 +1,183 @@
+---
+title: LevelManager
+description: Manages level objectives, button states, and door unlocking in Playback levels.
+---
+
+The `LevelManager` tracks completion of level objectives (buttons and timed challenges) and opens the exit door when all objectives are complete.
+
+## Class signature
+
+```gdscript level_manager.gd:1
+extends Node
+
+class_name LevelManager
+```
+
+## Export variables
+
+<ParamField path="door" type="LevelFinishedDoor" required>
+  Reference to the level's exit door
+  
+  ```gdscript level_manager.gd:5
+  @export var door : LevelFinishedDoor
+  ```
+</ParamField>
+
+<ParamField path="buttons" type="Array[InteractButton]" required>
+  Array of button objectives in the level
+  
+  ```gdscript level_manager.gd:6
+  @export var buttons : Array[InteractButton]
+  ```
+</ParamField>
+
+<ParamField path="timedObjectives" type="Array[TimedObjectiveManager]">
+  Array of timed objective managers (optional)
+  
+  ```gdscript level_manager.gd:7
+  @export var timedObjectives : Array[TimedObjectiveManager]
+  ```
+</ParamField>
+
+## Variables
+
+```gdscript level_manager.gd:9
+var objectivesCompleted = 0
+```
+
+<ResponseField name="objectivesCompleted" type="int">
+  Counter tracking how many objectives are currently satisfied. When this equals the total number of objectives, the door opens.
+</ResponseField>
+
+## Methods
+
+### buttonPressed()
+
+Callback when a button is pressed:
+
+```gdscript level_manager.gd:11
+func buttonPressed() -> void:
+    objectivesCompleted += 1
+```
+
+### buttonReleased()
+
+Callback when a button is released:
+
+```gdscript level_manager.gd:14
+func buttonReleased() -> void:
+    objectivesCompleted -= 1
+```
+
+### timedObjectiveComplete()
+
+Callback when a timed objective is completed:
+
+```gdscript level_manager.gd:17
+func timedObjectiveComplete() -> void:
+    objectivesCompleted += 1
+```
+
+### timedObjectiveFailed()
+
+Callback when a timed objective fails:
+
+```gdscript level_manager.gd:20
+func timedObjectiveFailed() -> void:
+    objectivesCompleted -= 1
+```
+
+### _ready()
+
+Initializes the level by connecting button and objective signals:
+
+```gdscript level_manager.gd:24
+func _ready() -> void:
+    GameManager.showMouse(false)
+    for button in buttons:
+        button.onButtonPressed.connect(buttonPressed)
+        button.onButtonReleased.connect(buttonReleased)
+    
+    for objective in timedObjectives:
+        objective.onObjectivesCollected.connect(timedObjectiveComplete)
+```
+
+<Note>
+  The manager automatically hides the mouse cursor when the level starts for gameplay.
+</Note>
+
+### _process()
+
+Updates door state based on objective completion:
+
+```gdscript level_manager.gd:34
+func _process(delta: float) -> void:
+    if objectivesCompleted >= buttons.size() + timedObjectives.size():
+        door.isOpen = true
+    else:
+        door.isOpen = false
+```
+
+## Usage
+
+Add a LevelManager node to your level scene and configure it:
+
+```gdscript
+# Example level scene structure
+Level
+├── LevelManager
+│   ├── door: LevelFinishedDoor reference
+│   ├── buttons: [Button1, Button2, Button3]
+│   └── timedObjectives: []
+├── Player
+├── RecordingManager
+├── Buttons
+│   ├── Button1 (InteractButton)
+│   ├── Button2 (InteractButton)
+│   └── Button3 (InteractButton)
+└── LevelFinishedDoor
+```
+
+<Steps>
+  <Step title="Add LevelManager to your scene">
+    Create a LevelManager node in your level.
+  </Step>
+  
+  <Step title="Assign the door reference">
+    Drag the LevelFinishedDoor node to the `door` export variable.
+  </Step>
+  
+  <Step title="Add button references">
+    Populate the `buttons` array with all InteractButton nodes that are objectives.
+  </Step>
+  
+  <Step title="Add timed objectives (optional)">
+    If using timed objectives, add TimedObjectiveManager references.
+  </Step>
+</Steps>
+
+## How it works
+
+The LevelManager uses a simple counter system:
+
+1. **Button pressed**: `objectivesCompleted++`
+2. **Button released**: `objectivesCompleted--`
+3. **All objectives satisfied**: `objectivesCompleted == total objectives`
+4. **Door opens**: When all objectives are complete
+
+<Warning>
+  Buttons must stay pressed to keep objectives satisfied. If a button is released (e.g., player steps off), the objective count decreases and the door closes.
+</Warning>
+
+## Integration with time rewind
+
+The LevelManager works seamlessly with Playback's rewind mechanics:
+
+- Button states persist through recording and playback
+- Ghost entities can trigger buttons
+- Objective completion is recalculated each frame
+- Use ghosts to hold down multiple buttons simultaneously
+
+<Tip>
+  Design puzzles where players must record themselves pressing one button, then use the ghost to keep it pressed while they press others.
+</Tip>

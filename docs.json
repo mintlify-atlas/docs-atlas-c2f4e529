@@ -59,8 +59,15 @@
         "pages": [
           "api/recording-manager",
           "api/player-movement",
+          "api/player-animation-manager",
           "api/game-manager",
-          "api/frame-data"
+          "api/frame-data",
+          "api/audio-manager",
+          "api/audio-resource",
+          "api/level-manager",
+          "api/level-finish-door",
+          "api/recording-button",
+          "api/interact-button"
         ]
       }
     ]

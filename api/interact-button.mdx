@@ -1,0 +1,234 @@
+---
+title: InteractButton
+description: Pressure-sensitive button for puzzle objectives, activated by objects in the "button_interact" group.
+---
+
+The `InteractButton` is a pressure plate-style button used for puzzle mechanics. It activates when objects enter its area and deactivates when they leave.
+
+## Class signature
+
+```gdscript button.gd:1
+extends Node2D
+
+class_name InteractButton
+```
+
+<Note>
+  This is distinct from `RecordingButton`, which triggers recordings. InteractButton is for general puzzle mechanics.
+</Note>
+
+## Export variables
+
+<ParamField path="releaseDelay" type="float" default="0.0">
+  Delay in seconds before the button releases after all objects leave
+  
+  ```gdscript button.gd:5
+  @export var releaseDelay : float = 0.0
+  ```
+  
+  Useful for giving players a grace period to move between buttons.
+</ParamField>
+
+## Variables
+
+```gdscript button.gd:6
+var timeSinceAreaExited : float = 0.0
+var areaExited = false
+var nodesOnButton : int = 0
+```
+
+<ResponseField name="timeSinceAreaExited" type="float">
+  Timer tracking elapsed time since last object exited.
+</ResponseField>
+
+<ResponseField name="areaExited" type="bool">
+  Flag indicating whether the delay countdown is active.
+</ResponseField>
+
+<ResponseField name="nodesOnButton" type="int">
+  Count of objects currently on the button. Button stays pressed as long as this is greater than zero.
+</ResponseField>
+
+## Child nodes
+
+```gdscript button.gd:10
+@onready var area : Area2D = $Area2D
+@onready var sprite : Sprite2D = $Sprite2D
+```
+
+<ResponseField name="area" type="Area2D">
+  Collision area detecting objects that can press the button.
+</ResponseField>
+
+<ResponseField name="sprite" type="Sprite2D">
+  Button sprite with frames:
+  - Frame 0: Unpressed
+  - Frame 1: Pressed
+</ResponseField>
+
+## Signals
+
+```gdscript button.gd:13
+signal onButtonPressed
+signal onButtonReleased
+```
+
+<ResponseField name="onButtonPressed" type="signal">
+  Emitted when the button is first pressed (when `nodesOnButton` goes from 0 to 1).
+</ResponseField>
+
+<ResponseField name="onButtonReleased" type="signal">
+  Emitted when the button is released (after `releaseDelay` expires with no objects on button).
+</ResponseField>
+
+## Methods
+
+### pressButton()
+
+Activates the button:
+
+```gdscript button.gd:16
+func pressButton() -> void:
+    sprite.frame = 1
+    AudioManager.play_sound(AudioResource.SoundEffect.BUTTON_PRESSED)
+    onButtonPressed.emit()
+```
+
+### releaseButton()
+
+Deactivates the button:
+
+```gdscript button.gd:21
+func releaseButton() -> void:
+    sprite.frame = 0
+    AudioManager.play_sound(AudioResource.SoundEffect.BUTTON_RELEASED)
+    onButtonReleased.emit()
+```
+
+### onAreaEntered()
+
+Callback when an object enters the button's area:
+
+```gdscript button.gd:27
+func onAreaEntered(node : Node) -> void:
+    if node.is_in_group("button_interact"):
+        nodesOnButton += 1
+        if nodesOnButton == 1:
+            pressButton()
+```
+
+<Note>
+  Only objects in the "button_interact" group can activate the button.
+</Note>
+
+### onAreaExited()
+
+Callback when an object leaves the button's area:
+
+```gdscript button.gd:34
+func onAreaExited(node : Node) -> void:
+    if node.is_in_group("button_interact"):
+        nodesOnButton -= 1
+        if nodesOnButton == 0:
+            timeSinceAreaExited = 0.0
+            areaExited = true
+```
+
+### _ready()
+
+Connects area signals:
+
+```gdscript button.gd:43
+func _ready() -> void:
+    area.body_entered.connect(onAreaEntered)
+    area.body_exited.connect(onAreaExited)
+```
+
+### _process()
+
+Handles release delay:
+
+```gdscript button.gd:47
+func _process(delta: float) -> void:
+    if not areaExited:
+        return
+    
+    if timeSinceAreaExited < releaseDelay:
+        timeSinceAreaExited += delta
+        return
+    
+    areaExited = false
+    releaseButton()
+```
+
+## Usage
+
+<Steps>
+  <Step title="Add button to your scene">
+    Instantiate the button scene in your level.
+  </Step>
+  
+  <Step title="Add objects to button_interact group">
+    Select objects that should activate buttons (player, crates, etc.) and add them to the "button_interact" group:
+    
+    ```
+    Node → Groups → Add "button_interact"
+    ```
+  </Step>
+  
+  <Step title="Connect to LevelManager">
+    Add the button to the LevelManager's `buttons` array.
+  </Step>
+  
+  <Step title="Configure release delay (optional)">
+    Set `releaseDelay` to give players time between button activations:
+    
+    ```gdscript
+    releaseDelay = 0.5  # Half-second grace period
+    ```
+  </Step>
+</Steps>
+
+## Multi-object support
+
+The button tracks multiple objects simultaneously:
+
+```gdscript
+# Player steps on button
+nodesOnButton = 1  # Button pressed
+
+# Crate also placed on button
+nodesOnButton = 2  # Still pressed
+
+# Player steps off
+nodesOnButton = 1  # Still pressed (crate remains)
+
+# Crate removed
+nodesOnButton = 0  # Delay starts, then button releases
+```
+
+<Tip>
+  Use ghosts to keep buttons pressed! Record yourself placing a crate on a button, then use the ghost replay to keep it pressed while you handle other objectives.
+</Tip>
+
+## Differences from RecordingButton
+
+| Feature | InteractButton | RecordingButton |
+|---------|---------------|------------------|
+| Purpose | Puzzle objectives | Trigger recordings |
+| Group filter | `button_interact` | `player` |
+| Signals | onButtonPressed/Released | onButtonPressed |
+| Use case | LevelManager objectives | RecordingTrigger activation |
+
+## Integration with time rewind
+
+Buttons work seamlessly with the recording system:
+
+- Button state persists through rewind
+- Ghosts can activate buttons
+- Use recordings to hold down multiple buttons simultaneously
+- Button pressed/released events work during playback
+
+<Warning>
+  Ensure objects that need to press buttons are in the "button_interact" group AND the "rewindables" group for full rewind support.
+</Warning>

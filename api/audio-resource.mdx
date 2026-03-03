@@ -1,0 +1,145 @@
+---
+title: AudioResource
+description: Resource class for configuring sound effects in Playback's audio system.
+---
+
+The `AudioResource` class is a Resource that defines sound effect configuration, including the audio stream, volume, and pitch randomization.
+
+## Class signature
+
+```gdscript audio_resource.gd:1
+extends Resource
+
+class_name AudioResource
+```
+
+## SoundEffect enum
+
+Defines all available sound effect types in the game:
+
+```gdscript audio_resource.gd:5
+enum SoundEffect {
+    PLAYER_JUMP,
+    PLAYER_EAT,
+    BUTTON_PRESSED,
+    BUTTON_RELEASED,
+    DOOR_KNOCK
+}
+```
+
+<ParamField path="PLAYER_JUMP" type="int">
+  Sound played when the player jumps
+</ParamField>
+
+<ParamField path="PLAYER_EAT" type="int">
+  Sound played when the player eats (placeholder for future use)
+</ParamField>
+
+<ParamField path="BUTTON_PRESSED" type="int">
+  Sound played when a button is pressed down
+</ParamField>
+
+<ParamField path="BUTTON_RELEASED" type="int">
+  Sound played when a button is released
+</ParamField>
+
+<ParamField path="DOOR_KNOCK" type="int">
+  Sound played when attempting to open a locked door
+</ParamField>
+
+## Export variables
+
+<ParamField path="stream" type="AudioStreamMP3" required>
+  The audio stream file to play
+  
+  ```gdscript audio_resource.gd:13
+  @export var stream : AudioStreamMP3
+  ```
+</ParamField>
+
+<ParamField path="type" type="SoundEffect" required>
+  The sound effect type from the SoundEffect enum
+  
+  ```gdscript audio_resource.gd:14
+  @export var type : SoundEffect
+  ```
+</ParamField>
+
+<ParamField path="volume" type="int" default="0">
+  Volume in decibels (range: -40 to 20)
+  
+  ```gdscript audio_resource.gd:15
+  @export_range(-40, 20) var volume : int = 0
+  ```
+</ParamField>
+
+<ParamField path="pitchRandomnessLower" type="float" default="1.0">
+  Lower bound for pitch randomization (range: 0.0 to 4.0)
+  
+  ```gdscript audio_resource.gd:16
+  @export_range(0.0, 4.0, 0.01) var pitchRandomnessLower = 1.0
+  ```
+</ParamField>
+
+<ParamField path="pitchRandomnessHigher" type="float" default="1.0">
+  Upper bound for pitch randomization (range: 0.0 to 4.0)
+  
+  ```gdscript audio_resource.gd:17
+  @export_range(0.0, 4.0, 0.01) var pitchRandomnessHigher = 1.0
+  ```
+</ParamField>
+
+## Usage
+
+AudioResource instances are created as resource files (.tres) and configured in the Godot editor:
+
+```gdscript
+# Create a new AudioResource in the editor
+# Set the stream to your audio file
+# Set the type to one of the SoundEffect enum values
+# Adjust volume and pitch randomization as desired
+```
+
+The AudioManager loads these resources and uses them to play sounds:
+
+```gdscript
+# From audio_manager.gd:13
+func play_sound(type: AudioResource.SoundEffect):
+    var resource : AudioResource = sounds_dic[type]
+    stream_player.stream = resource.stream
+    stream_player.volume_db = resource.volume
+    stream_player.pitch_scale = rng.randf_range(
+        resource.pitchRandomnessLower,
+        resource.pitchRandomnessHigher
+    )
+```
+
+## Example configuration
+
+<Accordion title="Jump sound resource">
+  ```
+  stream: res://Assets/Audio/jump.mp3
+  type: PLAYER_JUMP
+  volume: -5
+  pitchRandomnessLower: 0.95
+  pitchRandomnessHigher: 1.05
+  ```
+  
+  This creates a jump sound with slight pitch variation for variety.
+</Accordion>
+
+<Accordion title="Button press resource">
+  ```
+  stream: res://Assets/Audio/button_press.mp3
+  type: BUTTON_PRESSED
+  volume: 0
+  pitchRandomnessLower: 1.0
+  pitchRandomnessHigher: 1.0
+  ```
+  
+  This creates a consistent button press sound with no pitch variation.
+</Accordion>
+
+<Note>
+  Pitch randomization adds variety to repeated sounds. Set both values to 1.0 for consistent pitch.
+</Note>

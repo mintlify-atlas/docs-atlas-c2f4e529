@@ -1,0 +1,239 @@
+---
+title: RecordingButton
+description: Interactive button that triggers recording sessions, activated by the player.
+---
+
+The `RecordingButton` is a specialized button that starts recording sessions when the player interacts with it. It's used in conjunction with `RecordingTrigger` nodes.
+
+## Class signature
+
+```gdscript recording_button.gd:1
+extends Node2D
+
+class_name RecordingButton
+```
+
+<Note>
+  This button is specifically for starting recordings. For general puzzle buttons, use `InteractButton` instead.
+</Note>
+
+## Export variables
+
+<ParamField path="releaseDelay" type="float" default="0.0">
+  Delay in seconds before the button releases after the player leaves
+  
+  ```gdscript recording_button.gd:5
+  @export var releaseDelay : float = 0.0
+  ```
+</ParamField>
+
+## Variables
+
+```gdscript recording_button.gd:6
+var timeSinceAreaExited : float = 0.0
+var areaExited = false
+var nodesOnButton : int = 0
+```
+
+<ResponseField name="timeSinceAreaExited" type="float">
+  Timer for release delay.
+</ResponseField>
+
+<ResponseField name="areaExited" type="bool">
+  Flag indicating delay countdown is active.
+</ResponseField>
+
+<ResponseField name="nodesOnButton" type="int">
+  Count of player nodes on the button (typically 0 or 1).
+</ResponseField>
+
+## Child nodes
+
+```gdscript recording_button.gd:10
+@onready var area : Area2D = $Area2D
+@onready var sprite : Sprite2D = $Sprite2D
+```
+
+<ResponseField name="area" type="Area2D">
+  Collision area for detecting the player.
+</ResponseField>
+
+<ResponseField name="sprite" type="Sprite2D">
+  Button sprite:
+  - Frame 0: Unpressed
+  - Frame 1: Pressed
+</ResponseField>
+
+## Signals
+
+```gdscript recording_button.gd:13
+signal onButtonPressed
+signal onButtonReleased
+```
+
+<ResponseField name="onButtonPressed" type="signal">
+  Emitted when the button is pressed. Connected to RecordingTrigger to start recordings.
+</ResponseField>
+
+<ResponseField name="onButtonReleased" type="signal">
+  Emitted when the button is released.
+</ResponseField>
+
+## Methods
+
+### pressButton()
+
+Activates the button and emits the pressed signal:
+
+```gdscript recording_button.gd:16
+func pressButton() -> void:
+    sprite.frame = 1
+    AudioManager.play_sound(AudioResource.SoundEffect.BUTTON_PRESSED)
+    onButtonPressed.emit()
+```
+
+### releaseButton()
+
+Deactivates the button:
+
+```gdscript recording_button.gd:21
+func releaseButton() -> void:
+    sprite.frame = 0
+    AudioManager.play_sound(AudioResource.SoundEffect.BUTTON_RELEASED)
+    onButtonReleased.emit()
+```
+
+### onAreaEntered()
+
+Detects when the player steps on the button:
+
+```gdscript recording_button.gd:27
+func onAreaEntered(node : Node) -> void:
+    if node.is_in_group("player"):
+        nodesOnButton += 1
+        if nodesOnButton == 1:
+            pressButton()
+```
+
+<Warning>
+  Only nodes in the "player" group can activate recording buttons. This is different from InteractButton which uses "button_interact".
+</Warning>
+
+### onAreaExited()
+
+Detects when the player leaves the button:
+
+```gdscript recording_button.gd:34
+func onAreaExited(node : Node) -> void:
+    if node.is_in_group("player"):
+        nodesOnButton -= 1
+        if nodesOnButton == 0:
+            timeSinceAreaExited = 0.0
+            areaExited = true
+```
+
+### _ready()
+
+Connects signals:
+
+```gdscript recording_button.gd:43
+func _ready() -> void:
+    area.body_entered.connect(onAreaEntered)
+    area.body_exited.connect(onAreaExited)
+```
+
+### _process()
+
+Handles release delay:
+
+```gdscript recording_button.gd:47
+func _process(delta: float) -> void:
+    if not areaExited:
+        return
+    
+    if timeSinceAreaExited < releaseDelay:
+        timeSinceAreaExited += delta
+        return
+    
+    areaExited = false
+    releaseButton()
+```
+
+## Usage with RecordingTrigger
+
+RecordingButton works in tandem with RecordingTrigger:
+
+```gdscript
+# Scene structure
+RecordingTrigger
+└── RecordingButton
+    ├── Area2D
+    └── Sprite2D
+```
+
+The RecordingTrigger connects to the button's signal:
+
+```gdscript recording_trigger.gd:7
+func _on_recording_button_on_button_pressed() -> void:
+    recording_manager.start_recording(recording_id)
+```
+
+<Steps>
+  <Step title="Add RecordingTrigger to your scene">
+    Instantiate a RecordingTrigger node.
+  </Step>
+  
+  <Step title="Add RecordingButton as child">
+    The RecordingButton should be a child of the RecordingTrigger.
+  </Step>
+  
+  <Step title="Connect the signal">
+    The RecordingTrigger automatically connects to `_on_recording_button_on_button_pressed()` via the scene setup.
+  </Step>
+  
+  <Step title="Ensure player is in player group">
+    The player node must be in the "player" group:
+    ```
+    Node → Groups → Add "player"
+    ```
+  </Step>
+</Steps>
+
+## Comparison with InteractButton
+
+| Feature | RecordingButton | InteractButton |
+|---------|----------------|----------------|
+| Purpose | Start recordings | Puzzle objectives |
+| Activates on | Player only | Any "button_interact" object |
+| Parent node | RecordingTrigger | Level root or objectives folder |
+| Managed by | RecordingManager | LevelManager |
+
+## Visual feedback
+
+The button provides immediate visual and audio feedback:
+
+1. **Sprite changes**: Frame 0 (unpressed) → Frame 1 (pressed)
+2. **Sound effect**: Plays `BUTTON_PRESSED` sound
+3. **Recording starts**: RecordingManager enters RECORDING state
+
+<Tip>
+  Position recording buttons strategically in your level to create clear "checkpoint" moments where players can create new timeline branches.
+</Tip>
+
+## Player group requirement
+
+Ensure your player is in the "player" group:
+
+```gdscript project.godot
+[global_group]
+player="spieler"
+```
+
+Or add it manually in the editor:
+
+```
+1. Select the player node
+2. Go to the Node panel
+3. Click Groups tab
+4. Add "player" group
+```

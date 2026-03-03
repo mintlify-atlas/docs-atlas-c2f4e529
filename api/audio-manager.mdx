@@ -1,0 +1,143 @@
+---
+title: AudioManager
+description: Global autoload singleton for managing sound effects in Playback.
+---
+
+The `AudioManager` is an autoload singleton that provides centralized audio playback throughout your game. It manages `AudioResource` assets and creates temporary audio players for each sound.
+
+## Class signature
+
+```gdscript audio_manager.gd:1
+extends Node
+```
+
+<Note>
+  AudioManager is configured as an autoload singleton in `project.godot`. It's accessible globally as `AudioManager` from any script.
+</Note>
+
+## Export variables
+
+<ParamField path="sounds" type="Array[AudioResource]">
+  Array of AudioResource assets loaded from the editor
+  
+  ```gdscript audio_manager.gd:3
+  @export var sounds : Array[AudioResource]
+  ```
+  
+  Populated in the AudioManager scene's inspector with all sound effects used in the game.
+</ParamField>
+
+## Internal variables
+
+```gdscript audio_manager.gd:5
+var sounds_dic : Dictionary
+var rng : RandomNumberGenerator = RandomNumberGenerator.new()
+```
+
+<ResponseField name="sounds_dic" type="Dictionary">
+  Internal dictionary mapping SoundEffect enum values to AudioResource instances. Built during `_ready()`.
+</ResponseField>
+
+<ResponseField name="rng" type="RandomNumberGenerator">
+  Random number generator for pitch variation.
+</ResponseField>
+
+## Methods
+
+### _ready()
+
+Initializes the sound dictionary from the exported sounds array:
+
+```gdscript audio_manager.gd:9
+func _ready() -> void:
+    for sound in sounds:
+        sounds_dic[sound.type] = sound
+```
+
+### play_sound()
+
+Plays a sound effect with automatic cleanup.
+
+```gdscript audio_manager.gd:13
+func play_sound(type: AudioResource.SoundEffect)
+```
+
+<ParamField path="type" type="AudioResource.SoundEffect" required>
+  The sound effect to play from the SoundEffect enum
+</ParamField>
+
+**Behavior:**
+
+1. Looks up the AudioResource for the given type
+2. Creates a temporary AudioStreamPlayer node
+3. Configures volume and randomized pitch from the resource
+4. Plays the sound
+5. Automatically frees the player when finished
+
+```gdscript audio_manager.gd:13
+func play_sound(type: AudioResource.SoundEffect):
+    if not sounds_dic.has(type):
+        push_error("No Sound Effect Of Type")
+    
+    var resource : AudioResource = sounds_dic[type]
+    var stream_player : AudioStreamPlayer = AudioStreamPlayer.new()
+    add_child(stream_player)
+    
+    stream_player.stream = resource.stream
+    stream_player.volume_db = resource.volume
+    stream_player.pitch_scale = rng.randf_range(
+        resource.pitchRandomnessLower,
+        resource.pitchRandomnessHigher
+    )
+    stream_player.finished.connect(stream_player.queue_free)
+    
+    stream_player.play()
+```
+
+<Warning>
+  If the sound type is not found in the dictionary, an error is logged but execution continues. Ensure all sound types are configured in the AudioManager scene.
+</Warning>
+
+## Setup
+
+The AudioManager autoload is configured in `project.godot`:
+
+```ini
+[autoload]
+AudioManager="*res://Scenes/audio_manager.tscn"
+```
+
+## Usage examples
+
+<CodeGroup>
+  ```gdscript Player jump
+  # From player_movement.gd:54
+  if is_grounded:
+      velocity.y = jump_velocity
+      AudioManager.play_sound(AudioResource.SoundEffect.PLAYER_JUMP)
+  ```
+
+  ```gdscript Button interaction
+  # From recording_button.gd:18
+  func pressButton() -> void:
+      sprite.frame = 1
+      AudioManager.play_sound(AudioResource.SoundEffect.BUTTON_PRESSED)
+      onButtonPressed.emit()
+  ```
+
+  ```gdscript Door interaction
+  # From level_finish_door.gd:34
+  if not isOpen and Input.is_action_just_pressed("interact"):
+      AudioManager.play_sound(AudioResource.SoundEffect.DOOR_KNOCK)
+  ```
+</CodeGroup>
+
+## Design notes
+
+<Accordion title="Why temporary audio players?">
+  Creating a new AudioStreamPlayer for each sound allows multiple instances of the same sound to overlap naturally. The player automatically cleans itself up via the `queue_free()` callback when playback finishes.
+</Accordion>
+
+<Accordion title="Performance considerations">
+  Creating and destroying nodes frequently could impact performance in extreme cases. For games with hundreds of simultaneous sounds, consider pooling AudioStreamPlayer instances instead.
+</Accordion>

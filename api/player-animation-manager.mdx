@@ -1,0 +1,389 @@
+---
+title: PlayerAnimationManager
+description: Animation state machine that manages player sprite animations based on movement and physics state.
+---
+
+The `PlayerAnimationManager` extends `AnimatedSprite2D` and automatically updates player animations based on velocity, ground state, and player actions.
+
+## Class signature
+
+```gdscript player_animation_manager.gd:1
+extends AnimatedSprite2D
+class_name PlayerAnimationManager
+```
+
+## Export variables
+
+<ParamField path="player_node" type="CharacterBody2D" required>
+  Reference to the player CharacterBody2D for reading velocity and ground state
+  
+  ```gdscript player_animation_manager.gd:4
+  @export var player_node: CharacterBody2D
+  ```
+</ParamField>
+
+<ParamField path="falling_velocity_thresholds" type="Array[float]" default="[120.0, 280.0]">
+  Velocity thresholds for falling animation frames
+  
+  ```gdscript player_animation_manager.gd:5
+  @export var falling_velocity_thresholds: Array[float] = [120.0, 280.0]
+  ```
+  
+  Higher velocity = more stretched/squashed falling pose.
+</ParamField>
+
+<ParamField path="jumping_velocity_thresholds" type="Array[float]" default="[120.0, 200.0, 280.0]">
+  Velocity thresholds for jumping animation frames
+  
+  ```gdscript player_animation_manager.gd:6
+  @export var jumping_velocity_thresholds: Array[float] = [120.0, 200.0, 280.0]
+  ```
+  
+  Creates anticipation and follow-through in jump animations.
+</ParamField>
+
+## PlayerState enum
+
+```gdscript player_animation_manager.gd:8
+enum PlayerState {
+    IDLE,
+    RUN,
+    CHARGING,
+    JUMP,
+    FALLING,
+    SPLAT,
+    HURT,
+    DIE
+}
+```
+
+<ParamField path="IDLE" type="int">
+  Standing still on the ground
+</ParamField>
+
+<ParamField path="RUN" type="int">
+  Moving horizontally on the ground
+</ParamField>
+
+<ParamField path="CHARGING" type="int">
+  Charging a jump (crouch pose)
+</ParamField>
+
+<ParamField path="JUMP" type="int">
+  Moving upward (negative vertical velocity)
+</ParamField>
+
+<ParamField path="FALLING" type="int">
+  Moving downward (positive vertical velocity)
+</ParamField>
+
+<ParamField path="SPLAT" type="int">
+  Landing animation (one-shot)
+</ParamField>
+
+<ParamField path="HURT" type="int">
+  Damage animation (placeholder for future use)
+</ParamField>
+
+<ParamField path="DIE" type="int">
+  Death animation (placeholder for future use)
+</ParamField>
+
+## Variables
+
+```gdscript player_animation_manager.gd:19
+var current_state: PlayerState = PlayerState.IDLE
+var player_is_charging: bool = false
+var is_playing_splat: bool = false
+```
+
+<ResponseField name="current_state" type="PlayerState">
+  Current animation state.
+</ResponseField>
+
+<ResponseField name="player_is_charging" type="bool">
+  Whether the player is charging a jump.
+</ResponseField>
+
+<ResponseField name="is_playing_splat" type="bool">
+  Whether the landing animation is currently playing (blocks other transitions).
+</ResponseField>
+
+## Methods
+
+### _ready()
+
+Initializes the animation system:
+
+```gdscript player_animation_manager.gd:24
+func _ready() -> void:
+    play_animation(current_state)
+```
+
+### _process()
+
+Updates animations each frame based on player state:
+
+```gdscript player_animation_manager.gd:28
+func _process(_delta: float) -> void:
+    if not player_node:
+        return
+
+    if GameManager.playerIsRewinding:
+        return
+    
+    # Flip sprite based on movement direction
+    if player_node.velocity.x != 0:
+        flip_h = player_node.velocity.x > 0
+    
+    update_velocity_based_animations()
+    
+    if is_playing_splat:
+        return
+    
+    # State transitions
+    if player_node.is_on_floor():
+        if player_is_charging:
+            return
+        
+        if player_node.velocity.x != 0:
+            set_state(PlayerState.RUN)
+        else:
+            set_state(PlayerState.IDLE)
+    else:
+        if player_node.velocity.y < 0:
+            set_state(PlayerState.JUMP)
+        elif player_node.velocity.y > 0:
+            set_state(PlayerState.FALLING)
+```
+
+<Note>
+  During rewind, the animation manager is disabled. The RecordingManager directly controls the sprite.
+</Note>
+
+### _on_player_started_charging()
+
+Callback for jump charge start:
+
+```gdscript player_animation_manager.gd:57
+func _on_player_started_charging() -> void:
+    player_is_charging = true
+    if not is_playing_splat and player_node.is_on_floor():
+        set_state(PlayerState.CHARGING)
+```
+
+Connect this to the PlayerMovement's `started_charging` signal.
+
+### _on_player_stopped_charging()
+
+Callback for jump charge end:
+
+```gdscript player_animation_manager.gd:62
+func _on_player_stopped_charging() -> void:
+    player_is_charging = false
+```
+
+### _on_player_landed_on_ground()
+
+Callback for landing:
+
+```gdscript player_animation_manager.gd:65
+func _on_player_landed_on_ground() -> void:
+    is_playing_splat = true
+    set_state(PlayerState.SPLAT)
+```
+
+Triggers the landing animation (one-shot).
+
+### _on_animation_finished()
+
+Handles animation completion (for one-shot animations):
+
+```gdscript player_animation_manager.gd:69
+func _on_animation_finished() -> void:
+    if current_state == PlayerState.SPLAT:
+        is_playing_splat = false
+        if player_is_charging:
+            set_state(PlayerState.CHARGING)
+        elif player_node.velocity.x != 0:
+            set_state(PlayerState.RUN)
+        else:
+            set_state(PlayerState.IDLE)
+```
+
+### set_state()
+
+Transitions to a new animation state:
+
+```gdscript player_animation_manager.gd:79
+func set_state(new_state):
+    if current_state == new_state:
+        return
+    
+    current_state = new_state
+    play_animation(current_state)
+```
+
+### update_velocity_based_animations()
+
+Updates frame within velocity-based animations:
+
+```gdscript player_animation_manager.gd:86
+func update_velocity_based_animations():
+    var speed_y = abs(player_node.velocity.y)
+    
+    match current_state:
+        PlayerState.FALLING:
+            set_velocity_based_frame("FALLING", speed_y, falling_velocity_thresholds, false)
+        PlayerState.JUMP:
+            set_velocity_based_frame("JUMP", speed_y, jumping_velocity_thresholds, true)
+```
+
+### set_velocity_based_frame()
+
+Calculates and sets the appropriate animation frame based on velocity:
+
+```gdscript player_animation_manager.gd:96
+func set_velocity_based_frame(anim_name: String, speed: float, thresholds: Array[float], reverse_order: bool):
+    var target_frame = 0
+    
+    for i in range(thresholds.size()):
+        if speed >= thresholds[i]:
+            target_frame = i + 1
+    
+    if reverse_order:
+        var max_frame = sprite_frames.get_frame_count(anim_name) - 1
+        target_frame = max_frame - target_frame
+    
+    target_frame = clamp(target_frame, 0, sprite_frames.get_frame_count(anim_name) - 1)
+    frame = target_frame
+```
+
+### play_animation()
+
+Plays the animation for a given state:
+
+```gdscript player_animation_manager.gd:110
+func play_animation(state: PlayerState):
+    var anim_name = "IDLE"
+    
+    match state:
+        PlayerState.IDLE:
+            anim_name = "IDLE"
+        PlayerState.RUN:
+            anim_name = "RUN"
+        PlayerState.CHARGING:
+            anim_name = "CHARGING"
+        PlayerState.JUMP:
+            anim_name = "JUMP"
+        PlayerState.FALLING:
+            anim_name = "FALLING"
+        PlayerState.SPLAT:
+            anim_name = "SPLAT"
+        PlayerState.HURT:
+            anim_name = "HURT"
+        PlayerState.DIE:
+            anim_name = "DIE"
+    
+    play(anim_name)
+    update_velocity_based_animations()
+```
+
+### reset_to_idle()
+
+Resets animation state (called by RecordingManager after rewind):
+
+```gdscript player_animation_manager.gd:134
+func reset_to_idle():
+    current_state = PlayerState.IDLE
+    player_is_charging = false
+    is_playing_splat = false
+    play_animation(PlayerState.IDLE)
+```
+
+## Setup
+
+<Steps>
+  <Step title="Add AnimatedSprite2D to player">
+    Create an AnimatedSprite2D as a child of your player CharacterBody2D.
+  </Step>
+  
+  <Step title="Attach script">
+    Attach `player_animation_manager.gd` to the AnimatedSprite2D.
+  </Step>
+  
+  <Step title="Assign player reference">
+    Set `player_node` to reference the parent CharacterBody2D.
+  </Step>
+  
+  <Step title="Connect signals">
+    In the PlayerMovement script, connect signals:
+    
+    ```gdscript
+    # In player.tscn or via code:
+    player_movement.started_charging.connect(animation_manager._on_player_started_charging)
+    player_movement.stopped_charging.connect(animation_manager._on_player_stopped_charging)
+    player_movement.landed_on_ground.connect(animation_manager._on_player_landed_on_ground)
+    ```
+  </Step>
+  
+  <Step title="Connect animation_finished">
+    Connect the AnimatedSprite2D's built-in signal:
+    
+    ```gdscript
+    animation_finished.connect(_on_animation_finished)
+    ```
+  </Step>
+</Steps>
+
+## Required animations
+
+Your SpriteFrames resource must include these animations:
+
+- `IDLE` - Standing still
+- `RUN` - Running cycle
+- `CHARGING` - Crouch/charging pose
+- `JUMP` - 3+ frames for jump arc (uses velocity thresholds)
+- `FALLING` - 2+ frames for falling (uses velocity thresholds)
+- `SPLAT` - Landing squash (one-shot)
+- `HURT` - Damage animation (optional)
+- `DIE` - Death animation (optional)
+
+<Tip>
+  For jump and falling animations, create multiple frames showing different squash/stretch states. The velocity thresholds will automatically select the appropriate frame based on speed.
+</Tip>
+
+## Velocity-based animation
+
+Jump and falling animations use velocity to select frames dynamically:
+
+**Jump animation (reverse_order = true):**
+```
+Velocity: 100 → Frame 3 (start of jump, compressed)
+Velocity: 150 → Frame 2 (mid jump)
+Velocity: 250 → Frame 1 (apex, stretched)
+Velocity: 350 → Frame 0 (peak height)
+```
+
+**Fall animation (reverse_order = false):**
+```
+Velocity: 100 → Frame 0 (slow fall)
+Velocity: 150 → Frame 1 (faster)
+Velocity: 300 → Frame 2 (terminal velocity, squashed)
+```
+
+<Accordion title="Why reverse order for jump?">
+  Jump velocity decreases as the player rises (starts high, ends at 0 at apex). Reversing the frame order ensures the squash/stretch progression feels natural.
+</Accordion>
+
+## Integration with RecordingManager
+
+During rewind, the RecordingManager directly controls the sprite:
+
+```gdscript recording_manager.gd:126
+player_sprite.flip_h = data.flip_h
+player_sprite.animation = data.animation_name
+player_sprite.frame = data.animation_frame
+```
+
+After rewind completes, `reset_to_idle()` is called to return control to the animation manager.
