@@ -1,0 +1,266 @@
+---
+title: Audio integration
+description: Integrate sound effects into your Playback game using the AudioManager singleton and AudioResource system.
+---
+
+Playback uses a centralized audio system that manages sound effects through an autoload singleton. This guide covers how to play sounds and configure audio resources.
+
+## AudioManager autoload singleton
+
+The `AudioManager` is an autoload singleton that provides global access to the audio system from any script in your game.
+
+### Setup
+
+The AudioManager is configured as an autoload in your project settings:
+
+1. Go to **Project → Project Settings → Autoload**
+2. Add `audio_manager.tscn` with the name `AudioManager`
+3. The singleton is now accessible globally as `AudioManager`
+
+<Note>
+  Autoload singletons are instantiated automatically when your game starts and persist across scenes.
+</Note>
+
+### How it works
+
+The AudioManager maintains a dictionary of sound effects loaded from `AudioResource` assets:
+
+```gdscript audio_manager.gd:9
+func _ready() -> void:
+    for sound in sounds:
+        sounds_dic[sound.type] = sound
+```
+
+When you request a sound:
+
+1. The manager creates a temporary `AudioStreamPlayer` node
+2. Configures volume and pitch randomization from the resource
+3. Plays the sound and automatically frees the player when finished
+
+```gdscript audio_manager.gd:13
+func play_sound(type: AudioResource.SoundEffect):
+    if not sounds_dic.has(type):
+        push_error("No Sound Effect Of Type")
+    
+    var resource : AudioResource = sounds_dic[type]
+    var stream_player : AudioStreamPlayer = AudioStreamPlayer.new()
+    add_child(stream_player)
+    
+    stream_player.stream = resource.stream
+    stream_player.volume_db = resource.volume
+    stream_player.pitch_scale = rng.randf_range(resource.pitchRandomnessLower, resource.pitchRandomnessHigher)
+    stream_player.finished.connect(stream_player.queue_free)
+    
+    stream_player.play()
+```
+
+<Tip>
+  Each sound creates its own temporary player, allowing multiple instances of the same sound to overlap naturally.
+</Tip>
+
+## Playing sounds with play_sound()
+
+To play a sound effect from any script, call the `AudioManager.play_sound()` method with a sound effect enum value:
+
+```gdscript
+AudioManager.play_sound(AudioResource.SoundEffect.PLAYER_JUMP)
+```
+
+<Steps>
+  <Step title="Import the AudioResource class">
+    The `AudioResource` class is already globally available as a class_name. No import needed.
+  </Step>
+
+  <Step title="Call play_sound()">
+    Use the AudioManager singleton to play a sound:
+
+    ```gdscript
+    AudioManager.play_sound(AudioResource.SoundEffect.BUTTON_PRESSED)
+    ```
+  </Step>
+
+  <Step title="Sound plays automatically">
+    The sound effect plays immediately with configured volume and pitch variation. The audio player cleans itself up when finished.
+  </Step>
+</Steps>
+
+### Common usage patterns
+
+<CodeGroup>
+  ```gdscript Player jump
+  # From player_movement.gd:54
+  if Input.is_action_just_released("jump") and GameManager.userHasControl:
+      stopped_charging.emit()
+      is_charging_jump = false
+      
+      if is_grounded:
+          velocity.y = jump_velocity
+          AudioManager.play_sound(AudioResource.SoundEffect.PLAYER_JUMP)
+  ```
+
+  ```gdscript Button press
+  # From button.gd:16
+  func pressButton() -> void:
+      sprite.frame = 1
+      AudioManager.play_sound(AudioResource.SoundEffect.BUTTON_PRESSED)
+      onButtonPressed.emit()
+  ```
+
+  ```gdscript Button release
+  # From button.gd:21
+  func releaseButton() -> void:
+      sprite.frame = 0
+      AudioManager.play_sound(AudioResource.SoundEffect.BUTTON_RELEASED)
+      onButtonReleased.emit()
+  ```
+
+  ```gdscript Door knock
+  # From level_finish_door.gd:34
+  if not isOpen and Input.is_action_just_pressed("interact"):
+      AudioManager.play_sound(AudioResource.SoundEffect.DOOR_KNOCK)
+  ```
+</CodeGroup>
+
+<Note>
+  Sounds are fire-and-forget. You don't need to manage cleanup or track audio player nodes.
+</Note>
+
+## AudioResource.SoundEffect enum
+
+The `SoundEffect` enum defines all available sound effects in your game:
+
+```gdscript audio_resource.gd:5
+enum SoundEffect {
+    PLAYER_JUMP,
+    PLAYER_EAT,
+    BUTTON_PRESSED,
+    BUTTON_RELEASED,
+    DOOR_KNOCK
+}
+```
+
+### Available sound effects
+
+| Effect | Usage | Example |
+|--------|-------|----------|
+| `PLAYER_JUMP` | When player releases jump charge | Player movement |
+| `PLAYER_EAT` | Eating/consuming items | Item pickup |
+| `BUTTON_PRESSED` | Button pressed down | Pressure plate activation |
+| `BUTTON_RELEASED` | Button released | Pressure plate deactivation |
+| `DOOR_KNOCK` | Door interaction failed | Locked door attempt |
+
+<Accordion title="Adding new sound effects">
+  To add a new sound effect:
+
+  1. Add the enum value to `AudioResource.SoundEffect`:
+  ```gdscript
+  enum SoundEffect {
+      PLAYER_JUMP,
+      PLAYER_EAT,
+      BUTTON_PRESSED,
+      BUTTON_RELEASED,
+      DOOR_KNOCK,
+      NEW_SOUND  // Your new sound
+  }
+  ```
+
+  2. Create an `AudioResource` asset in Godot:
+     - Right-click in FileSystem → New Resource → AudioResource
+     - Set the `stream` to your audio file
+     - Set the `type` to your new enum value
+     - Configure `volume` and pitch randomness
+
+  3. Add the resource to the AudioManager's `sounds` array in `audio_manager.tscn`
+
+  4. Use it in code:
+  ```gdscript
+  AudioManager.play_sound(AudioResource.SoundEffect.NEW_SOUND)
+  ```
+</Accordion>
+
+## AudioResource configuration
+
+Each `AudioResource` asset stores configuration for a single sound effect:
+
+```gdscript audio_resource.gd:13
+@export var stream : AudioStreamMP3
+@export var type : SoundEffect
+@export_range(-40, 20) var volume : int = 0
+@export_range(0.0, 4.0, 0.01) var pitchRandomnessLower = 1.0
+@export_range(0.0, 4.0, 0.01) var pitchRandomnessHigher = 1.0
+```
+
+### Properties
+
+- **stream**: The audio file (AudioStreamMP3, AudioStreamWAV, etc.)
+- **type**: Which `SoundEffect` enum this resource represents
+- **volume**: Volume in decibels (-40 to 20, default 0)
+- **pitchRandomnessLower**: Minimum pitch scale multiplier (0.0 to 4.0)
+- **pitchRandomnessHigher**: Maximum pitch scale multiplier (0.0 to 4.0)
+
+<Tip>
+  Pitch randomization adds variety to repeated sounds. Set both values to 1.0 for consistent pitch, or use a range like 0.9 to 1.1 for subtle variation.
+</Tip>
+
+### Creating audio resources
+
+<Steps>
+  <Step title="Create the resource">
+    In the FileSystem dock:
+    - Right-click → New Resource
+    - Search for and select `AudioResource`
+    - Save it with a descriptive name (e.g., `jump_sound.tres`)
+  </Step>
+
+  <Step title="Configure properties">
+    In the Inspector:
+    - **Stream**: Drag your audio file from FileSystem
+    - **Type**: Select the appropriate `SoundEffect` enum value
+    - **Volume**: Adjust to balance with other sounds (-10 to 0 is common)
+    - **Pitch Randomness Lower**: Set minimum pitch (e.g., 0.95)
+    - **Pitch Randomness Higher**: Set maximum pitch (e.g., 1.05)
+  </Step>
+
+  <Step title="Add to AudioManager">
+    Open `audio_manager.tscn` and add your resource to the `sounds` array in the Inspector.
+  </Step>
+</Steps>
+
+## Example: Player jump sound
+
+Here's how the player jump sound is integrated in `player_movement.gd`:
+
+```gdscript player_movement.gd:48
+if Input.is_action_just_released("jump") and GameManager.userHasControl:
+    stopped_charging.emit()
+    is_charging_jump = false
+    
+    if is_grounded:
+        velocity.y = jump_velocity
+        AudioManager.play_sound(AudioResource.SoundEffect.PLAYER_JUMP)
+    
+    jump_velocity = 0.0
+```
+
+Breakdown:
+1. Detect jump button release while player has control
+2. Stop charging state and emit signal
+3. **Only play sound if player is grounded** (prevents air sound)
+4. Apply jump velocity and play `PLAYER_JUMP` sound
+5. Reset jump velocity
+
+<Warning>
+  Always check game state conditions before playing sounds. Playing audio at inappropriate times can confuse players or break immersion.
+</Warning>
+
+## Best practices
+
+- Play sounds immediately when actions occur for tight feedback
+- Use pitch randomization (0.95-1.05 range) to reduce repetitiveness
+- Keep volume balanced across all sound effects (-10 to 0 dB is typical)
+- Test audio levels with multiple simultaneous sounds
+- Gate sound playback with relevant state checks (e.g., `is_grounded` for jump sounds)
+
+<Note>
+  The AudioManager's random pitch variation is automatically applied each time you play a sound, using the configured range from the AudioResource.
+</Note>

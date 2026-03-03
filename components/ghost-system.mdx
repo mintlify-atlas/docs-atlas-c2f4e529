@@ -1,0 +1,287 @@
+---
+title: Ghost system
+description: Replay recorded player actions using ghost entities in Playback
+---
+
+The ghost system allows you to spawn and playback previous player recordings as semi-transparent "ghost" entities that replay the exact movements and animations from earlier runs.
+
+## Overview
+
+Ghosts are created by the `RecordingManager` when starting a new recording or playing back recordings. Each ghost plays back a specific recording ID's FrameData, synchronizing position, rotation, and sprite animations.
+
+**Key files**:
+- `Scripts/recording_body.gd` - Legacy ghost implementation (position-only)
+- `Scripts/recording_manager.gd` - Modern ghost system with full animation sync
+
+<Note>
+  The codebase contains two ghost implementations. The `Recording_Body` class is a simpler legacy system, while `RecordingManager.playback_ghosts()` provides full animation synchronization.
+</Note>
+
+## Recording_Body class
+
+The `Recording_Body` class is a CharacterBody2D that replays a simple position-based recording:
+
+```gdscript
+class_name Recording_Body
+
+var recording : Array[Vector2]
+var index : float = 0
+var onFinish : Callable
+var waitTime : float = 1.0
+var timeWaited : float = 0
+```
+
+<ParamField path="recording" type="Array[Vector2]">
+  Array of positions to replay frame-by-frame
+</ParamField>
+
+<ParamField path="index" type="float">
+  Current playback position in the recording array
+</ParamField>
+
+<ParamField path="onFinish" type="Callable">
+  Callback function invoked when playback completes
+</ParamField>
+
+<ParamField path="waitTime" type="float" default="1.0">
+  Delay in seconds before starting playback
+</ParamField>
+
+### Legacy playback loop
+
+```gdscript
+func _physics_process(delta: float) -> void:
+    if timeWaited < waitTime:
+        timeWaited += delta
+        return
+    
+    if index >= recording.size():
+        onFinish.call()
+        queue_free()
+        return
+    
+    global_position = recording[index]
+    index += 1
+```
+
+<Warning>
+  `Recording_Body` only replays positions and lacks animation synchronization. For full fidelity playback, use the modern ghost system managed by `RecordingManager`.
+</Warning>
+
+## Modern ghost system
+
+The `RecordingManager` class provides a sophisticated ghost system with full animation synchronization.
+
+### Spawning ghosts
+
+Ghosts spawn at the start of recording or playback:
+
+```gdscript
+func spawn_ghosts() -> void:
+    for i in player_recordings:
+        if i == recording_id:
+            continue
+        
+        var ghost = ghost_scene.instantiate() as CharacterBody2D
+        ghost.global_position = player_recordings[i][0].position
+        ghosts_node.add_child(ghost)
+        ghosts[i] = ghost
+```
+
+<ParamField path="ghost_scene" type="PackedScene">
+  Scene to instantiate for each ghost. Must contain a CharacterBody2D with an AnimatedSprite2D child.
+</ParamField>
+
+<ParamField path="ghosts_node" type="Node">
+  Parent node where ghost instances are added
+</ParamField>
+
+<ParamField path="ghosts" type="Dictionary[int, CharacterBody2D]">
+  Maps recording IDs to their ghost instances
+</ParamField>
+
+## Animation synchronization
+
+Ghosts replay with perfect animation fidelity using FrameData:
+
+<CodeGroup>
+```gdscript Playback loop
+func playback_ghosts() -> void:
+    for key in player_recordings:
+        if key == recording_id:
+            continue
+        
+        if player_recordings[key].size() <= current_frame:
+            continue
+        
+        var data = player_recordings[key][current_frame] as FrameData
+        
+        var ghost = ghosts[key]
+        var ghost_sprite = ghost.find_child("AnimatedSprite2D") as AnimatedSprite2D
+
+        ghost.global_position = data.position
+        ghost.global_rotation = data.rotation
+        if ghost_sprite:
+            ghost_sprite.flip_h = data.flip_h
+            ghost_sprite.animation = data.animation_name
+            ghost_sprite.frame = data.animation_frame
+```
+</CodeGroup>
+
+### Synchronized properties
+
+<Tabs>
+  <Tab title="Transform">
+    - **`position`** - Exact global position from recording
+    - **`rotation`** - Global rotation angle
+  </Tab>
+  <Tab title="Sprite">
+    - **`flip_h`** - Horizontal flip state (facing direction)
+    - **`animation`** - Current animation name (e.g., "run", "jump", "idle")
+    - **`frame`** - Exact animation frame number
+  </Tab>
+</Tabs>
+
+<Note>
+  Animation synchronization ensures ghosts mirror the exact visual state of the player during recording, including mid-animation frames and facing direction.
+</Note>
+
+## Ghost lifecycle
+
+Ghosts follow a specific lifecycle managed by `RecordingManager`:
+
+### 1. Spawn phase
+
+```gdscript
+# Triggered when starting recording or playback
+spawn_ghosts()
+```
+
+Ghosts instantiate at the first frame position of their recording.
+
+### 2. Playback phase
+
+```gdscript
+# Called every physics frame during RECORDING, PLAYING, or REWINDING states
+playback_ghosts()
+```
+
+Ghosts update their position and animation to match the current frame.
+
+### 3. Cleanup phase
+
+```gdscript
+func clear_ghosts() -> void:
+    for ghost in ghosts:
+        ghosts[ghost].queue_free()
+    ghosts.clear()
+```
+
+<Warning>
+  Ghosts are cleared when rewinding completes (`current_frame <= 0`). Ensure you call `clear_ghosts()` to prevent memory leaks.
+</Warning>
+
+## Recording states
+
+Ghost behavior changes based on `RecordingManager.state`:
+
+<Tabs>
+  <Tab title="RECORDING">
+    Ghosts play back while the player records a new run:
+    
+    ```gdscript
+    State.RECORDING:
+        record_player()
+        record_objects()
+        playback_ghosts()  # Show previous runs
+        current_frame += 1
+    ```
+  </Tab>
+  <Tab title="PLAYING">
+    Ghosts play back during manual playback:
+    
+    ```gdscript
+    State.PLAYING:
+        if current_frame >= frames_recorded - 1:
+            start_rewinding(false)
+            return
+        
+        playback_ghosts()
+        record_objects()
+        current_frame += 1
+    ```
+  </Tab>
+  <Tab title="REWINDING">
+    Ghosts rewind along with the player:
+    
+    ```gdscript
+    State.REWINDING:
+        current_frame -= 1 * rewind_speed
+        
+        if should_rewind_player:
+            rewind_player()
+        if !ghosts.is_empty():
+            playback_ghosts()
+        
+        rewind_objects()
+    ```
+  </Tab>
+  <Tab title="PAUSED">
+    Ghosts freeze at their current frame:
+    
+    ```gdscript
+    State.PAUSED:
+        return  # No updates
+    ```
+  </Tab>
+</Tabs>
+
+## Scene structure
+
+Your ghost scene should follow this structure:
+
+```
+Ghost (CharacterBody2D)
+├── AnimatedSprite2D
+│   └── (Animation frames matching player)
+└── CollisionShape2D (optional)
+```
+
+<Note>
+  Ghosts typically use the same sprite sheets as the player to ensure visual consistency. You can add a shader or modulate color to make them semi-transparent.
+</Note>
+
+## Multiple ghost support
+
+The system supports unlimited ghosts through the recording ID system:
+
+```gdscript
+var player_recordings : Dictionary[int, Array] = {}
+var ghosts : Dictionary[int, CharacterBody2D]
+```
+
+Each recording ID gets its own ghost instance. When recording ID `2`, ghosts for recordings `0` and `1` will play back simultaneously.
+
+<Warning>
+  The current recording ID is excluded from ghost playback to avoid showing a ghost at the player's exact position:
+  
+  ```gdscript
+  if key == recording_id:
+      continue
+  ```
+</Warning>
+
+## Ghost groups
+
+Ghosts should be added to the `ghosts` global group:
+
+```gdscript
+# From project.godot
+ghosts="geister"
+```
+
+This allows other systems to query and interact with all active ghosts:
+
+```gdscript
+var all_ghosts = get_tree().get_nodes_in_group("ghosts")
+```

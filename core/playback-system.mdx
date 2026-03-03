@@ -1,0 +1,243 @@
+---
+title: Playback system
+description: Understand how Playback spawns and animates ghost replays of recorded player actions
+---
+
+The playback system brings your recordings to life by spawning "ghost" characters that replay previously recorded actions. This allows players to interact with their past selves to solve puzzles.
+
+## Ghost spawning
+
+Ghosts are instantiated from all available recordings except the current one:
+
+```gdscript Scripts/recording_manager.gd
+func spawn_ghosts() -> void:
+	for i in player_recordings:
+		if i == recording_id:
+			continue
+		
+		var ghost = ghost_scene.instantiate() as CharacterBody2D
+		ghost.global_position = player_recordings[i][0].position
+		ghosts_node.add_child(ghost)
+		ghosts[i] = ghost
+```
+
+<Info>
+Each ghost is stored in a dictionary keyed by recording ID, making it easy to manage multiple timeline branches.
+</Info>
+
+### How it works
+
+<Tabs>
+  <Tab title="Spawning logic">
+    1. Iterates through all available `player_recordings`
+    2. Skips the current recording (you don't spawn a ghost of yourself)
+    3. Instantiates the `ghost_scene` prefab
+    4. Positions the ghost at the recording's starting position
+    5. Adds the ghost to the scene hierarchy under `ghosts_node`
+    6. Stores the ghost reference indexed by recording ID
+  </Tab>
+  <Tab title="Requirements">
+    You need to configure these exports on the `RecordingManager`:
+    
+    - `ghost_scene`: A `PackedScene` containing your ghost character prefab
+    - `ghosts_node`: A Node in your scene tree where ghosts will be spawned
+    
+    The ghost scene should have the same structure as your player, including an `AnimatedSprite2D` child.
+  </Tab>
+</Tabs>
+
+<Note>
+Ghosts are spawned at the beginning of both `RECORDING` and `PLAYING` states, so you can see previous timelines while creating new ones.
+</Note>
+
+## Ghost animation playback
+
+Every frame, ghosts replay their recorded actions synchronously:
+
+```gdscript Scripts/recording_manager.gd
+func playback_ghosts() -> void:
+	for key in player_recordings:
+		if key == recording_id:
+			continue
+		
+		if player_recordings[key].size() <= current_frame:
+			continue
+		
+		var data = player_recordings[key][current_frame] as FrameData
+		
+		var ghost = ghosts[key]
+		var ghost_sprite = ghost.find_child("AnimatedSprite2D") as AnimatedSprite2D
+
+		ghost.global_position = data.position
+		ghost.global_rotation = data.rotation
+		if ghost_sprite:
+			ghost_sprite.flip_h = data.flip_h
+			ghost_sprite.animation = data.animation_name
+			ghost_sprite.frame = data.animation_frame
+```
+
+### Playback process
+
+<Accordion title="Frame synchronization">
+  All ghosts are synchronized to the same `current_frame` counter. This ensures they replay in perfect sync with each other and with the current recording/rewind operation.
+</Accordion>
+
+<Accordion title="Data restoration">
+  For each ghost:
+  1. Retrieves the `FrameData` at the current frame index
+  2. Sets the ghost's position and rotation from the data
+  3. Locates the ghost's `AnimatedSprite2D` child
+  4. Applies animation state (name, frame, horizontal flip)
+</Accordion>
+
+<Accordion title="Bounds checking">
+  The system skips playback if `current_frame` exceeds the recording length. This handles recordings of different durations gracefully.
+</Accordion>
+
+<Warning>
+Ghosts don't use physics simulation—they're directly positioned each frame. This ensures perfect replay accuracy but means ghost collisions need to be handled separately.
+</Warning>
+
+## Managing multiple recordings
+
+The system uses recording IDs to track multiple timeline branches:
+
+```gdscript Scripts/recording_manager.gd
+var player_recordings : Dictionary[int, Array] = {}
+var ghosts : Dictionary[int, CharacterBody2D]
+
+var recording_id : int = -1
+var current_frame : int = 0
+```
+
+### Recording ID system
+
+<Tabs>
+  <Tab title="Storage structure">
+    **Player recordings**: `Dictionary[int, Array]`
+    - Key: Recording ID (integer)
+    - Value: Array of `FrameData` objects
+    
+    **Ghost instances**: `Dictionary[int, CharacterBody2D]`
+    - Key: Recording ID (integer)
+    - Value: Ghost node reference
+    
+    This parallel structure makes it easy to look up both the recording data and the corresponding ghost.
+  </Tab>
+  <Tab title="ID management">
+    - `recording_id` tracks the current/active recording
+    - Set to `-1` when no recording is active
+    - Each new recording should use a unique ID
+    - When spawning ghosts, all recordings except the current one are instantiated
+  </Tab>
+</Tabs>
+
+<Tip>
+You can implement a simple auto-incrementing ID system or use more complex branching logic depending on your game's needs.
+</Tip>
+
+## Clearing ghosts
+
+When rewind completes or you need to reset, ghosts are removed:
+
+```gdscript Scripts/recording_manager.gd
+func clear_ghosts() -> void:
+	for ghost in ghosts:
+		ghosts[ghost].queue_free()
+	ghosts.clear()
+```
+
+This safely queues all ghost nodes for deletion and clears the dictionary.
+
+## Playback states
+
+Ghosts can be active in multiple recording manager states:
+
+### During RECORDING
+
+```gdscript Scripts/recording_manager.gd
+State.RECORDING:
+	record_player()
+	record_objects()
+	
+	playback_ghosts()  # Previous timelines visible
+	
+	current_frame += 1
+```
+
+Ghosts from previous recordings play while you record a new timeline. This lets players see their past actions and plan interactions.
+
+### During PLAYING
+
+```gdscript Scripts/recording_manager.gd
+State.PLAYING:
+	if current_frame >= frames_recorded - 1:
+		start_rewinding(false)
+		return
+	
+	playback_ghosts()
+	record_objects()
+	
+	current_frame += 1
+```
+
+In playback mode, ghosts replay while objects continue to be recorded. This enables interaction between ghost actions and the environment.
+
+### During REWINDING
+
+```gdscript Scripts/recording_manager.gd
+State.REWINDING:
+	current_frame -= 1 * rewind_speed
+	
+	if should_rewind_player:
+		rewind_player()
+	if !ghosts.is_empty():
+		playback_ghosts()  # Ghosts rewind too
+	
+	rewind_objects()
+```
+
+<Info>
+During rewind, ghosts play backwards by accessing earlier frame indices as `current_frame` decrements.
+</Info>
+
+## Ghost scene structure
+
+Your ghost prefab should match your player structure:
+
+```gdscript
+CharacterBody2D (Ghost)
+└── AnimatedSprite2D
+    ├── animations: [idle, walk, jump, etc.]
+    └── frames per animation
+```
+
+<Note>
+The playback system uses `find_child("AnimatedSprite2D")` to locate the sprite, so the name must match exactly.
+</Note>
+
+## Common patterns
+
+<Accordion title="Visual distinction for ghosts">
+  Make ghosts visually distinct from the active player by:
+  - Applying a shader with transparency or color tint
+  - Using a different texture/sprite set
+  - Adding a visual effect (glow, outline, etc.)
+</Accordion>
+
+<Accordion title="Ghost collision layers">
+  Configure your ghost's collision layers differently from the player:
+  ```gdscript
+  # In your ghost scene's _ready()
+  collision_layer = 0  # Ghosts don't create collisions
+  collision_mask = 0   # Ghosts don't detect collisions
+  ```
+</Accordion>
+
+<Accordion title="Debugging multiple timelines">
+  Print the active ghosts and their recording IDs:
+  ```gdscript
+  for id in ghosts:
+      print("Ghost %d has %d frames recorded" % [id, player_recordings[id].size()])
+  ```
+</Accordion>

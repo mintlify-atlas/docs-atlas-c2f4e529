@@ -1,0 +1,322 @@
+---
+title: Recording triggers
+description: Set up scene-based triggers to start recordings in Playback
+---
+
+Recording triggers are Node2D-based components that initiate recordings when activated, typically through button presses or other in-game events.
+
+## Overview
+
+The `RecordingTrigger` class provides a simple way to start recordings in your Playback game. Each trigger is associated with a unique recording ID and connects to a `RecordingManager` to control the recording system.
+
+**Location**: `Scripts/recording_trigger.gd`
+
+## Class structure
+
+```gdscript
+extends Node2D
+class_name RecordingTrigger
+
+var recording_manager : RecordingManager 
+@export var recording_id : int
+
+func _on_recording_button_on_button_pressed() -> void:
+    recording_manager.start_recording(recording_id)
+```
+
+### Properties
+
+<ParamField path="recording_manager" type="RecordingManager">
+  Reference to the RecordingManager that handles the recording system. Automatically assigned by the manager during `_ready()`.
+</ParamField>
+
+<ParamField path="recording_id" type="int">
+  Unique identifier for this recording. Multiple triggers can share the same ID to overwrite the same recording slot.
+</ParamField>
+
+## Setting up triggers in scenes
+
+Follow these steps to add recording triggers to your levels:
+
+### 1. Add RecordingTrigger node
+
+Create a Node2D in your scene and attach the `recording_trigger.gd` script:
+
+```
+Level
+├── RecordingManager
+│   ├── RecordingTrigger (ID: 0)
+│   ├── RecordingTrigger (ID: 1)
+│   └── RecordingTrigger (ID: 2)
+└── ...
+```
+
+<Note>
+  RecordingTrigger nodes should be children of the RecordingManager node for automatic manager assignment.
+</Note>
+
+### 2. Configure recording ID
+
+Set the `recording_id` export variable in the Inspector:
+
+<CodeGroup>
+```gdscript First recording
+@export var recording_id : int = 0
+```
+
+```gdscript Second recording
+@export var recording_id : int = 1
+```
+
+```gdscript Third recording
+@export var recording_id : int = 2
+```
+</CodeGroup>
+
+<Warning>
+  Using the same recording ID for multiple triggers will cause them to overwrite each other's recordings. Use unique IDs if you want to preserve multiple recordings.
+</Warning>
+
+### 3. Connect button signal
+
+Connect a button or other input source to the trigger's method:
+
+```gdscript
+# Connect button signal in editor or code
+recording_button.connect("on_button_pressed", 
+    _on_recording_button_on_button_pressed)
+```
+
+The method name `_on_recording_button_on_button_pressed` suggests it's designed to work with a custom `RecordingButton` node.
+
+## Recording ID system
+
+The recording ID determines which recording slot is used:
+
+<Tabs>
+  <Tab title="Unique IDs">
+    Each trigger creates a separate recording:
+    
+    ```gdscript
+    # Trigger 1: recording_id = 0
+    # Trigger 2: recording_id = 1
+    # Trigger 3: recording_id = 2
+    
+    # Results in:
+    player_recordings = {
+        0: [FrameData, ...],
+        1: [FrameData, ...],
+        2: [FrameData, ...]
+    }
+    ```
+    
+    This creates 3 ghosts that play back simultaneously.
+  </Tab>
+  <Tab title="Shared IDs">
+    Multiple triggers overwrite the same recording:
+    
+    ```gdscript
+    # Trigger 1: recording_id = 0
+    # Trigger 2: recording_id = 0
+    # Trigger 3: recording_id = 1
+    
+    # Trigger 2 overwrites Trigger 1's recording
+    player_recordings = {
+        0: [Latest FrameData, ...],
+        1: [FrameData, ...]
+    }
+    ```
+    
+    This creates 2 ghosts (one from the last use of ID 0, one from ID 1).
+  </Tab>
+</Tabs>
+
+### Recording ID range
+
+Recording IDs are integers with no enforced upper limit:
+
+```gdscript
+var player_recordings : Dictionary[int, Array] = {}
+```
+
+You can use any integer value, but keep IDs sequential for easier management:
+
+<Note>
+  Use recording IDs starting from 0 and incrementing (0, 1, 2, 3...) for simplicity. Gaps in IDs (0, 5, 10) work but make tracking recordings harder.
+</Note>
+
+## Connection to RecordingManager
+
+The RecordingManager automatically assigns itself to all child RecordingTrigger nodes:
+
+```gdscript
+# From RecordingManager._ready()
+func _ready() -> void:
+    for child in get_children():
+        if child is RecordingTrigger:
+            (child as RecordingTrigger).recording_manager = self
+    
+    timer.wait_time = recording_time
+```
+
+<Warning>
+  RecordingTrigger nodes must be children of the RecordingManager for automatic connection. If you place triggers elsewhere in the scene tree, you must manually assign the `recording_manager` property.
+</Warning>
+
+## Starting recordings
+
+When a trigger activates, it calls the manager's `start_recording()` method:
+
+```gdscript
+func start_recording(rec_id: int) -> void:
+    if !state == State.IDLE:
+        return
+    
+    if not player:
+        print("no player to record")
+        return
+    
+    player_sprite = player.find_child("AnimatedSprite2D")
+    objs = get_tree().get_nodes_in_group("rewindables")
+    
+    recording_id = rec_id
+    if player_recordings.get(recording_id):
+        player_recordings[recording_id].clear()
+    
+    spawn_ghosts()
+    
+    current_frame = 0
+    state = State.RECORDING
+    
+    timer.start()
+```
+
+### Recording flow
+
+1. **Check state** - Only starts if manager is `State.IDLE`
+2. **Validate player** - Ensures player node exists
+3. **Find sprite** - Locates player's AnimatedSprite2D for animation capture
+4. **Get rewindables** - Collects all objects in the `rewindables` group
+5. **Clear existing** - Overwrites previous recording with same ID
+6. **Spawn ghosts** - Shows previous recordings as ghosts
+7. **Start recording** - Begins capturing FrameData every physics frame
+8. **Start timer** - Limits recording duration to `recording_time`
+
+<Note>
+  Recordings automatically stop after `recording_time` seconds (default: 5.0) and begin rewinding the player.
+</Note>
+
+## Recording button setup
+
+While not included in the provided code, the `_on_recording_button_on_button_pressed` method suggests a companion `RecordingButton` component:
+
+```gdscript
+# Expected structure
+RecordingButton
+├── Button or Area2D
+└── (Signal: on_button_pressed)
+```
+
+You can create this button component to trigger recordings:
+
+```gdscript
+extends Area2D
+class_name RecordingButton
+
+signal on_button_pressed
+
+func _on_body_entered(body: Node2D) -> void:
+    if body.is_in_group("player"):
+        on_button_pressed.emit()
+```
+
+## Alternative trigger methods
+
+You can extend RecordingTrigger for different activation methods:
+
+<CodeGroup>
+```gdscript Input trigger
+func _input(event: InputEvent) -> void:
+    if event.is_action_pressed("start_recording"):
+        recording_manager.start_recording(recording_id)
+```
+
+```gdscript Area trigger
+func _on_area_entered(area: Area2D) -> void:
+    if area.is_in_group("player"):
+        recording_manager.start_recording(recording_id)
+```
+
+```gdscript Timer trigger
+func _on_timer_timeout() -> void:
+    recording_manager.start_recording(recording_id)
+```
+</CodeGroup>
+
+## Scene example
+
+Here's a complete level setup with multiple recording triggers:
+
+```
+Level
+├── RecordingManager
+│   ├── RecordingTrigger (@export recording_id = 0)
+│   ├── RecordingTrigger (@export recording_id = 1)
+│   └── RecordingTrigger (@export recording_id = 2)
+│   └── Timer
+├── Player (in group "player")
+│   └── AnimatedSprite2D
+├── Ghosts (Node)
+├── RecordingButton1
+│   └── Area2D (connects to RecordingTrigger 0)
+├── RecordingButton2
+│   └── Area2D (connects to RecordingTrigger 1)
+└── RecordingButton3
+    └── Area2D (connects to RecordingTrigger 2)
+```
+
+<Note>
+  The `RecordingManager` export variables must be configured:
+  - **`player`**: Reference to player CharacterBody2D
+  - **`ghosts_node`**: Reference to Ghosts container node
+  - **`ghost_scene`**: PackedScene for ghost instances
+</Note>
+
+## State restrictions
+
+Recordings can only start from the `IDLE` state:
+
+```gdscript
+if !state == State.IDLE:
+    return
+```
+
+**Cannot start recording during**:
+- `State.RECORDING` - Already recording
+- `State.PLAYING` - Playing back recordings
+- `State.REWINDING` - Rewinding player/objects
+- `State.PAUSED` - Playback paused
+
+<Warning>
+  If you try to trigger a recording during playback or rewinding, the request will be silently ignored. Ensure the manager returns to `IDLE` state before starting a new recording.
+</Warning>
+
+## Debugging
+
+The RecordingManager prints debug messages when recordings start:
+
+```gdscript
+print("started recording ", rec_id)
+```
+
+If recordings don't start, check for these messages:
+- `"no player to record"` - Player reference is missing
+- `"couldn't get player sprite"` - AnimatedSprite2D child not found
+
+Add debug output to your trigger:
+
+```gdscript
+func _on_recording_button_on_button_pressed() -> void:
+    print("Trigger activated for recording ID: ", recording_id)
+    recording_manager.start_recording(recording_id)
+```

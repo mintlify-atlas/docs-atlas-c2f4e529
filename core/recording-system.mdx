@@ -1,0 +1,211 @@
+---
+title: Recording system
+description: Learn how Playback captures frame-by-frame gameplay data for time-rewind mechanics
+---
+
+The recording system is the foundation of Playback's time-rewind mechanics. It captures player and object states frame-by-frame during gameplay, storing them for later playback and rewind operations.
+
+## Recording architecture
+
+The `RecordingManager` operates as a state machine that coordinates all recording, playback, and rewind operations. Every physics frame, it captures position, rotation, and animation data for the player and all rewindable objects.
+
+### Manager states
+
+The recording system uses five distinct states to control its behavior:
+
+```gdscript Scripts/recording_manager.gd
+enum State {
+	IDLE,
+	PLAYING,
+	RECORDING,
+	REWINDING,
+	PAUSED
+}
+```
+
+<Info>
+The state machine ensures clean transitions between recording, playback, and rewind operations without conflicts.
+</Info>
+
+| State | Description |
+|-------|-------------|
+| `IDLE` | No active recording or playback |
+| `RECORDING` | Actively capturing frame data |
+| `PLAYING` | Playing back ghost recordings |
+| `REWINDING` | Reversing time to restore previous states |
+| `PAUSED` | Playback is paused |
+
+## Frame data structure
+
+Each frame captures a snapshot of entity state using the `FrameData` resource:
+
+```gdscript Scripts/Resources/FrameData.gd
+extends Resource
+class_name FrameData
+ 
+@export var position : Vector2
+@export var rotation : float
+@export var flip_h : bool
+@export var animation_name : String
+@export var animation_frame : int
+
+func _init(p_position: Vector2, p_rotation: float, p_flip_h: bool, p_animation_name: String, p_animation_frame: int) -> void:
+	position = p_position
+	rotation = p_rotation
+	flip_h = p_flip_h
+	animation_name = p_animation_name
+	animation_frame = p_animation_frame
+```
+
+<Note>
+`FrameData` stores both transform data (position, rotation) and visual state (animation name, frame, sprite flip) to ensure accurate playback.
+</Note>
+
+## Recording player data
+
+The player's state is recorded every physics frame during the `RECORDING` state:
+
+```gdscript Scripts/recording_manager.gd
+func record_player() -> void:
+	var data = FrameData.new(
+		player.global_position,
+		player.global_rotation,
+		player_sprite.flip_h,
+		player_sprite.animation,
+		player_sprite.frame
+	)
+	
+	if current_frame == 0:
+		player_recordings[recording_id] = [data]
+	else:
+		player_recordings[recording_id].append(data)
+```
+
+<Tabs>
+  <Tab title="How it works">
+    1. Creates a new `FrameData` instance with current player state
+    2. For the first frame (`current_frame == 0`), initializes a new array
+    3. For subsequent frames, appends data to the existing recording
+    4. Each recording is stored with a unique `recording_id`
+  </Tab>
+  <Tab title="Data captured">
+    - **Position**: `player.global_position` - Player's world coordinates
+    - **Rotation**: `player.global_rotation` - Player's rotation angle
+    - **Flip**: `player_sprite.flip_h` - Horizontal sprite flip state
+    - **Animation**: `player_sprite.animation` - Current animation name
+    - **Frame**: `player_sprite.frame` - Current animation frame
+  </Tab>
+</Tabs>
+
+## Recording object data
+
+Rewindable objects (nodes in the `rewindables` group) are recorded alongside the player:
+
+```gdscript Scripts/recording_manager.gd
+func record_objects() -> void:
+	for obj in objs:
+		var obj_id = obj.get_instance_id()
+		
+		var data = FrameData.new(
+			obj.global_position,
+			obj.global_rotation,
+			false,
+			"",
+			0
+		)
+		
+		if current_frame == 0:
+			object_recordings[obj_id] = [data]
+		else:
+			object_recordings[obj_id].append(data)
+```
+
+<Warning>
+Objects are indexed by their instance ID rather than recording ID. This allows the same object to be tracked across multiple recording sessions.
+</Warning>
+
+### Rewindable objects
+
+To make an object rewindable, add it to the `rewindables` group:
+
+```gdscript
+# In your object's _ready() function
+add_to_group("rewindables")
+```
+
+The recording system will automatically detect and record all objects in this group when recording starts.
+
+## Starting a recording
+
+Recordings are initiated with a unique ID:
+
+```gdscript Scripts/recording_manager.gd
+func start_recording(rec_id: int) -> void:
+	if !state == State.IDLE:
+		return
+	
+	if not player:
+		print("no player to record")
+		return
+	
+	player_sprite = player.find_child("AnimatedSprite2D")
+	objs = get_tree().get_nodes_in_group("rewindables")
+	initial_objs = objs
+	
+	recording_id = rec_id
+	if player_recordings.get(recording_id):
+		player_recordings[recording_id].clear()
+	
+	spawn_ghosts()
+	
+	current_frame = 0
+	state = State.RECORDING
+	
+	timer.start()
+```
+
+<Tip>
+The `recording_id` allows you to manage multiple timeline branches. Each recording session can be played back independently as a ghost.
+</Tip>
+
+## Recording lifecycle
+
+The typical recording flow follows these steps:
+
+<Accordion title="1. Initialize recording">
+  - Check that the system is in `IDLE` state
+  - Validate player reference exists
+  - Locate player sprite and rewindable objects
+  - Store initial object states
+  - Clear any existing recording with the same ID
+</Accordion>
+
+<Accordion title="2. Capture frames">
+  - Called every `_physics_process()` when state is `RECORDING`
+  - Record player state with `record_player()`
+  - Record object states with `record_objects()`
+  - Increment `current_frame` counter
+  - Continue until timer expires or manually stopped
+</Accordion>
+
+<Accordion title="3. Stop recording">
+  - Store the total frame count
+  - Prepare for rewind by setting `should_rewind_player = true`
+  - Automatically transition to rewinding state
+</Accordion>
+
+## Configuration options
+
+The `RecordingManager` exposes several parameters you can configure:
+
+```gdscript
+@export var rewind_speed: float = 1.0  # Speed multiplier for rewinding
+@export var recording_time: float = 5.0  # Maximum recording duration in seconds
+@export var ghost_scene: PackedScene  # Ghost player prefab for playback
+@export var ghosts_node: Node  # Parent node for spawned ghosts
+@export var player: CharacterBody2D  # Reference to the player character
+```
+
+<Info>
+Adjust `recording_time` to control how long players can record before automatic rewind. Lower values create tighter puzzle constraints.
+</Info>

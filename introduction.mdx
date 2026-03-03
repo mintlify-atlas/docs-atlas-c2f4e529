@@ -1,0 +1,144 @@
+---
+title: Introduction
+description: Learn about Playback, a Godot 4 framework for building 2D puzzle-platformers with time-rewind mechanics and ghost replay systems
+---
+
+# Introduction to Playback
+
+Playback is a comprehensive Godot 4 framework designed for creating 2D puzzle-platformer games with sophisticated time-rewind mechanics and ghost replay systems. Built with GDScript, it provides a solid foundation for games where players can record their actions, rewind time, and interact with ghost replays of their previous attempts.
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Get started by installing Playback and setting up your project
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build your first level with recording and playback in minutes
+  </Card>
+  <Card title="Core systems" icon="gear" href="/core/recording-system">
+    Explore the recording, replay, and rewind systems
+  </Card>
+  <Card title="API reference" icon="code" href="/api/recording-manager">
+    Detailed documentation of all classes and methods
+  </Card>
+</CardGroup>
+
+## Key features
+
+Playback provides everything you need to create engaging time-manipulation puzzle games:
+
+### Frame-perfect recording system
+
+The `RecordingManager` captures player and object states at each physics frame, storing position, rotation, and animation data in `FrameData` resources. This frame-perfect accuracy ensures smooth playback and rewind operations.
+
+```gdscript
+# FrameData captures complete state per frame
+var data = FrameData.new(
+    player.global_position,
+    player.global_rotation,
+    player_sprite.flip_h,
+    player_sprite.animation,
+    player_sprite.frame
+)
+```
+
+### Ghost replay system
+
+Players can see visual representations of their previous attempts playing back in real-time. Ghosts are spawned automatically and play back recorded animations frame-by-frame, creating compelling puzzle scenarios where you cooperate with your past selves.
+
+### Time-rewind mechanics
+
+Rewind time to undo mistakes or restart puzzles. The system smoothly rewinds both the player and all recorded objects (including RigidBody2D physics objects) back to their previous states.
+
+```gdscript
+# Rewind handles different object types appropriately
+if obj is RigidBody2D:
+    obj.set_deferred("global_position", data.position)
+    obj.set_deferred("linear_velocity", Vector2.ZERO)
+else:
+    obj.global_position = data.position
+```
+
+### Platformer movement controller
+
+A full-featured character controller with variable jump height, air control, and physics interactions. The `PlayerMovement` class includes:
+
+- Charge-based jumping with visual feedback
+- Speed modifiers for different states (charging, in-air)
+- RigidBody2D push mechanics
+- Customizable movement parameters
+
+### Audio management
+
+The built-in `AudioManager` singleton handles sound effects with pitch randomization and automatic cleanup, making it easy to add audio feedback to your game.
+
+## Architecture overview
+
+Playback is built around several core systems that work together:
+
+### Autoload singletons
+
+Two autoloaded managers handle global state:
+
+- **GameManager** (`~/workspace/source/Scenes/game_manager.tscn`): Controls player input state, time scale, and scene management
+- **AudioManager** (`~/workspace/source/Scenes/audio_manager.tscn`): Manages sound effect playback with pitch variation
+
+### Recording system
+
+The recording system consists of:
+
+- **RecordingManager** (`Scripts/recording_manager.gd`): Core state machine managing recording, playback, and rewind
+- **RecordingTrigger** (`Scripts/recording_trigger.gd`): Level objects that start recordings when activated
+- **FrameData** (`Scripts/Resources/FrameData.gd`): Resource class storing per-frame state data
+
+### State machine
+
+The `RecordingManager` operates on a clear state machine:
+
+```gdscript
+enum State {
+    IDLE,
+    PLAYING,
+    RECORDING,
+    REWINDING,
+    PAUSED
+}
+```
+
+Each state handles different aspects of the recording/playback lifecycle, ensuring clean transitions and predictable behavior.
+
+### Object tracking
+
+Objects are tracked through Godot's group system. Add any object to the `rewindables` group to have it automatically recorded and rewound:
+
+```gdscript
+# From project.godot global groups
+rewindables="objects tracked by recording manager"
+```
+
+<Note>
+  Playback is designed for Godot 4.4+ and uses modern GDScript features like typed variables and the new input system.
+</Note>
+
+## Input system
+
+Playback defines several input actions in `project.godot`:
+
+- **move_left/move_right**: Arrow keys or A/D
+- **jump**: Space, W, or Up arrow
+- **start_recording**: E key
+- **play_recording**: P key
+- **pause_playback**: Q key
+- **interact**: F key
+
+These can be customized through the Godot project settings.
+
+## What you'll build
+
+With Playback, you can create puzzles where:
+
+- Players record multiple attempts and all attempts play back simultaneously as ghosts
+- Ghosts can stand on buttons or push objects to help solve puzzles
+- Time rewinds to let players retry without losing progress
+- Multiple recording sessions create complex cooperative puzzle solutions
+
+Ready to get started? Head to the [installation guide](/installation) to set up your project.

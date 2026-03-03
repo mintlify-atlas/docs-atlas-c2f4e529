@@ -1,0 +1,343 @@
+---
+title: Game manager
+description: Learn how GameManager coordinates global state, player control, and scene management
+---
+
+The `GameManager` is a singleton autoload that provides global state management and utility functions for your game. It coordinates player control, time scaling, scene transitions, and rewind state tracking.
+
+## Global state variables
+
+GameManager maintains two key state flags:
+
+```gdscript Scripts/game_manager.gd
+var userHasControl = true
+var playerIsRewinding = false
+```
+
+<Tabs>
+  <Tab title="userHasControl">
+    Indicates whether the player currently has input control.
+    
+    **When true**: Player input is processed normally
+    **When false**: Player input should be ignored (cutscenes, rewind, etc.)
+    
+    Check this in your player controller:
+    ```gdscript
+    func _process(delta):
+        if not GameManager.userHasControl:
+            return
+        # Process player input
+    ```
+  </Tab>
+  <Tab title="playerIsRewinding">
+    Tracks whether the player character is currently rewinding.
+    
+    **When true**: Player is being rewound to a previous state
+    **When false**: Player is in normal gameplay or idle
+    
+    Useful for UI indicators or conditional gameplay logic.
+  </Tab>
+</Tabs>
+
+<Note>
+These are public variables that can be read directly from anywhere using `GameManager.userHasControl` and `GameManager.playerIsRewinding`.
+</Note>
+
+## Player control functions
+
+Manage player input state through these helper functions:
+
+### Setting player control
+
+```gdscript Scripts/game_manager.gd
+func playerControl(control: bool) -> void:
+	userHasControl = control
+```
+
+**Usage examples:**
+
+```gdscript
+# Disable player control during a cutscene
+GameManager.playerControl(false)
+
+# Re-enable after cutscene completes
+GameManager.playerControl(true)
+
+# Disable during rewind (from RecordingManager)
+GameManager.playerControl(not rewind_player)
+```
+
+<Info>
+The `RecordingManager` calls this automatically when starting/stopping rewind operations.
+</Info>
+
+### Setting rewind state
+
+```gdscript Scripts/game_manager.gd
+func set_player_rewinding(r: bool) -> void:
+	GameManager.playerIsRewinding = r
+```
+
+**Usage:**
+
+```gdscript
+# Mark player as rewinding
+GameManager.set_player_rewinding(true)
+
+# Clear rewind state
+GameManager.set_player_rewinding(false)
+```
+
+This function is called by `RecordingManager` to synchronize the global rewind state with the recording system's state machine.
+
+## Time scale control
+
+Control the game's time scale for slow-motion or pause effects:
+
+```gdscript Scripts/game_manager.gd
+func setTimeScale(scale: float) -> void:
+	Engine.time_scale = scale
+```
+
+**Common time scale values:**
+
+- `1.0` - Normal speed
+- `0.5` - Half speed (slow motion)
+- `0.0` - Paused (freeze time)
+- `2.0` - Double speed
+
+<Warning>
+Setting `time_scale` affects all game processes including audio pitch. Consider using `AudioServer.playback_speed_scale` separately if you want to preserve audio pitch.
+</Warning>
+
+**Example usage:**
+
+```gdscript
+# Slow-motion effect during rewind
+GameManager.setTimeScale(0.5)
+
+# Pause the game
+GameManager.setTimeScale(0.0)
+get_tree().paused = true
+
+# Resume normal speed
+GameManager.setTimeScale(1.0)
+get_tree().paused = false
+```
+
+## Scene management
+
+GameManager provides convenient functions for scene transitions:
+
+### Loading a specific scene
+
+```gdscript Scripts/game_manager.gd
+func load_scene(path : String) -> void:
+	get_tree().change_scene_to_file(path)
+```
+
+**Usage:**
+
+```gdscript
+# Load a specific level
+GameManager.load_scene("res://scenes/levels/level_02.tscn")
+
+# Return to main menu
+GameManager.load_scene("res://scenes/main_menu.tscn")
+```
+
+<Tip>
+Store level paths as constants or in a resource for easier management:
+```gdscript
+const LEVELS = {
+    "level_1": "res://scenes/levels/level_01.tscn",
+    "level_2": "res://scenes/levels/level_02.tscn",
+}
+GameManager.load_scene(LEVELS.level_2)
+```
+</Tip>
+
+### Reloading current scene
+
+```gdscript Scripts/game_manager.gd
+func reaload_scene() -> void:
+	get_tree().reload_current_scene()
+```
+
+<Note>
+Note the typo in the function name (`reaload` instead of `reload`). You may want to create an alias or fix this in your implementation.
+</Note>
+
+**Usage:**
+
+```gdscript
+# Restart the current level
+GameManager.reaload_scene()
+```
+
+## Built-in controls
+
+GameManager has a `_process()` function that handles some built-in controls:
+
+### Quit on pause
+
+```gdscript Scripts/game_manager.gd
+if Input.is_action_just_pressed("pause"):
+	GameManager.quit()
+```
+
+The "pause" action immediately quits the game. You may want to modify this to show a pause menu instead.
+
+### Hold to restart
+
+```gdscript Scripts/game_manager.gd
+const timeToHoldRestart : float = 3.0
+var timeSinceRestartHeld : float = 0.0
+
+if Input.is_key_pressed(KEY_R):
+	if GameManager.timeSinceRestartHeld >= GameManager.timeToHoldRestart:
+		GameManager.reaload_scene()
+		return
+	
+	GameManager.timeSinceRestartHeld += delta
+else:
+	GameManager.timeSinceRestartHeld = 0.0
+
+GameManager.restartProgressBar.value = GameManager.timeSinceRestartHeld / GameManager.timeToHoldRestart * 100.0
+```
+
+**How it works:**
+
+1. Hold the R key for 3 seconds to restart
+2. A progress bar fills up while holding
+3. Release early to cancel
+4. Level reloads when timer completes
+
+<Warning>
+This code references `GameManager.restartProgressBar` which must be assigned in the inspector. Make sure to set this reference or the code will error.
+</Warning>
+
+## Mouse visibility
+
+Control mouse cursor visibility:
+
+```gdscript Scripts/game_manager.gd
+func showMouse(show : bool) -> void:
+	if show:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	else:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+```
+
+**Usage:**
+
+```gdscript
+# Hide cursor during gameplay
+GameManager.showMouse(false)
+
+# Show cursor in menus
+GameManager.showMouse(true)
+```
+
+<Info>
+`MOUSE_MODE_CAPTURED` not only hides the cursor but also captures it for first-person-style mouse movement.
+</Info>
+
+## Quit function
+
+```gdscript Scripts/game_manager.gd
+func quit() -> void:
+	get_tree().quit()
+```
+
+Cleanly exits the game. Useful for quit buttons or game-over scenarios.
+
+## Setting up GameManager
+
+To use GameManager as a singleton:
+
+1. Go to **Project Settings > Autoload**
+2. Add `Scripts/game_manager.gd`
+3. Set the node name to `GameManager`
+4. Enable the autoload
+
+<Accordion title="Configuring the restart progress bar">
+  1. Add a `TextureProgressBar` node to your UI
+  2. In the GameManager script inspector, assign it to `restartProgressBar`
+  3. Configure the progress bar's min (0) and max (100) values
+  4. Style it to visually indicate restart progress
+</Accordion>
+
+## Integration with RecordingManager
+
+The `RecordingManager` depends on GameManager for state coordination:
+
+```gdscript
+# When starting rewind
+GameManager.set_player_rewinding(rewind_player)
+GameManager.playerControl(not rewind_player)
+
+# When stopping rewind
+GameManager.set_player_rewinding(false)
+GameManager.playerControl(true)
+
+# After recording timeout
+GameManager.playerControl(false)
+```
+
+<Tip>
+Always check `GameManager.userHasControl` in your player controller's input handling to ensure the control state is respected.
+</Tip>
+
+## Common patterns
+
+<Accordion title="Level transition with fade">
+  ```gdscript
+  func transition_to_level(path: String):
+      # Disable player control
+      GameManager.playerControl(false)
+      
+      # Play fade animation
+      $FadeAnimation.play("fade_out")
+      await $FadeAnimation.animation_finished
+      
+      # Load new scene
+      GameManager.load_scene(path)
+  ```
+</Accordion>
+
+<Accordion title="Pause menu implementation">
+  ```gdscript
+  func toggle_pause():
+      var is_paused = get_tree().paused
+      
+      if is_paused:
+          # Resume
+          get_tree().paused = false
+          GameManager.setTimeScale(1.0)
+          GameManager.playerControl(true)
+          GameManager.showMouse(false)
+      else:
+          # Pause
+          get_tree().paused = true
+          GameManager.setTimeScale(0.0)
+          GameManager.playerControl(false)
+          GameManager.showMouse(true)
+      
+      $PauseMenu.visible = not is_paused
+  ```
+</Accordion>
+
+<Accordion title="Death and respawn">
+  ```gdscript
+  func on_player_death():
+      # Disable control
+      GameManager.playerControl(false)
+      
+      # Play death animation/effects
+      await play_death_sequence()
+      
+      # Reload level
+      GameManager.reaload_scene()
+  ```
+</Accordion>

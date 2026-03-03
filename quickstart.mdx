@@ -1,80 +1,336 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Build your first Playback level with recording and ghost replay in minutes
 ---
 
-## Get started in three steps
+# Quickstart guide
 
-Get your documentation site running locally and make your first customization.
+This guide will walk you through creating a simple level with recording and playback functionality. By the end, you'll have a working scene where players can record their movements and see ghost replays.
 
-### Step 1: Set up your local environment
+## What you'll build
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+You'll create a basic level with:
 
-### Step 2: Deploy your changes
+- A player character with platformer controls
+- A recording trigger that starts capturing player movement
+- Ghost playback showing previous recording attempts
+- Automatic time rewind after recording completes
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+<Steps>
+  <Step title="Create a new scene">
+    Start by creating a new scene for your level:
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    1. In Godot, click **Scene > New Scene**
+    2. Add a **Node2D** as the root node
+    3. Rename it to "TestLevel"
+    4. Save the scene as `Scenes/test_level.tscn`
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    <Tip>
+      Using Node2D as the root keeps your scene flexible. You can add cameras, backgrounds, and other 2D elements easily.
+    </Tip>
+  </Step>
 
-### Step 3: Go live
+  <Step title="Add the player">
+    Instance the player character:
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    1. Right-click on TestLevel
+    2. Select **Instantiate Child Scene**
+    3. Choose `Scenes/player.tscn`
+    4. Position the player at a starting location (e.g., position `Vector2(100, 300)`)
+
+    The player scene includes:
+    - `PlayerMovement` script for character controls
+    - `PlayerAnimationManager` for sprite animation
+    - Collision shape for physics
+
+    Test the controls by running the scene (F6):
+    - **A/D**: Move left/right
+    - **Space**: Charge jump (hold longer for higher jumps)
+  </Step>
+
+  <Step title="Add a tilemap for ground">
+    Create a simple platform for the player to stand on:
+
+    1. Add a **TileMapLayer** node as a child of TestLevel
+    2. Create or assign a TileSet with collision shapes
+    3. Paint some ground tiles below the player
+
+    <Info>
+      You can reference the existing level scenes (like `Scenes/level_1.tscn`) to see how tilesets are configured in Playback.
+    </Info>
+
+    Alternatively, add a simple StaticBody2D with a CollisionShape2D for quick testing:
+
+    ```gdscript
+    # Create a simple floor for testing
+    var static_body = StaticBody2D.new()
+    var collision = CollisionShape2D.new()
+    var shape = RectangleShape2D.new()
+    shape.size = Vector2(800, 50)
+    collision.shape = shape
+    static_body.add_child(collision)
+    static_body.position = Vector2(400, 400)
+    add_child(static_body)
+    ```
+  </Step>
+
+  <Step title="Add the RecordingManager">
+    Instance the recording manager which handles all recording and playback:
+
+    1. Instantiate `Scenes/recording_manager.tscn` as a child of TestLevel
+    2. Select the RecordingManager node
+    3. In the Inspector, configure these exported variables:
+       - **Ghost Scene**: Assign `Scenes/ghost.tscn`
+       - **Player**: Drag your player instance here
+       - **Ghosts Node**: Create a new Node2D called "Ghosts" and assign it
+       - **Recording Time**: Set to `5.0` (5 seconds of recording)
+       - **Rewind Speed**: Set to `1.0` (normal rewind speed)
+
+    Your scene tree should now look like:
+    ```
+    TestLevel (Node2D)
+    ├── Player (CharacterBody2D)
+    ├── TileMapLayer
+    ├── Ghosts (Node2D)
+    └── RecordingManager
+    ```
+
+    <Warning>
+      The RecordingManager requires the Player and Ghosts Node references to function. Make sure these are assigned in the Inspector.
+    </Warning>
+  </Step>
+
+  <Step title="Add a recording trigger">
+    Create a trigger that starts recording when the player presses a button:
+
+    1. Instantiate `Scenes/recording_trigger.tscn` as a child of RecordingManager
+    2. Select the RecordingTrigger node
+    3. Set the **Recording Id** to `0` (first recording)
+
+    The RecordingTrigger scene includes a RecordingButton that the player can interact with. Position it where the player can reach it.
+
+    <Info>
+      RecordingTrigger automatically connects to its parent RecordingManager in the `_ready()` function:
+
+      ```gdscript
+      # From recording_manager.gd:39
+      for child in get_children():
+          if child is RecordingTrigger:
+              (child as RecordingTrigger).recording_manager = self
+      ```
+    </Info>
+  </Step>
+
+  <Step title="Test recording and playback">
+    Run your scene and test the recording system:
+
+    1. Press **F6** to run the current scene
+    2. Move your player using **A/D** and **Space**
+    3. Interact with the recording button to start recording (or press **E**)
+    4. Perform some movements for up to 5 seconds
+    5. After 5 seconds or when you press **P**, recording stops and time rewinds
+    6. Watch as your player rewinds to the starting position
+    7. Press **P** again to play back your recording as a ghost
+
+    <Tip>
+      Try creating multiple recordings! Each recording gets a unique ID and all ghosts play back simultaneously.
+    </Tip>
+  </Step>
+
+  <Step title="Add rewindable objects (optional)">
+    Make your level more interesting by adding objects that record and rewind:
+
+    1. Instantiate `Scenes/crate.tscn` (a RigidBody2D box)
+    2. Add it to the **rewindables** group:
+       - Select the crate
+       - Go to the **Node** tab (next to Inspector)
+       - In the **Groups** section, add "rewindables"
+
+    Now when recording and rewinding, the crate will also be tracked!
+
+    ```gdscript
+    # From recording_manager.gd:194
+    objs = get_tree().get_nodes_in_group("rewindables")
+    ```
+
+    The RecordingManager automatically handles RigidBody2D objects differently during rewind, freezing them and resetting their velocities:
+
+    ```gdscript
+    # From recording_manager.gd:153
+    if obj is RigidBody2D:
+        obj.set_deferred("global_position", data.position)
+        obj.set_deferred("linear_velocity", Vector2.ZERO)
+        obj.set_deferred("angular_velocity", 0.0)
+    ```
+  </Step>
+</Steps>
+
+## Understanding the recording flow
+
+Here's what happens behind the scenes when you record and play back:
+
+### 1. Starting a recording
+
+When you start recording, the RecordingManager:
+
+```gdscript
+# From recording_manager.gd:185
+func start_recording(rec_id: int) -> void:
+    recording_id = rec_id
+    player_sprite = player.find_child("AnimatedSprite2D")
+    objs = get_tree().get_nodes_in_group("rewindables")
+    spawn_ghosts()  # Spawn ghosts from previous recordings
+    current_frame = 0
+    state = State.RECORDING
+    timer.start()  # Start the recording timer
+```
+
+### 2. Recording frames
+
+Every physics frame during recording, the system captures state:
+
+```gdscript
+# From recording_manager.gd:106
+func record_player() -> void:
+    var data = FrameData.new(
+        player.global_position,
+        player.global_rotation,
+        player_sprite.flip_h,
+        player_sprite.animation,
+        player_sprite.frame
+    )
+    player_recordings[recording_id].append(data)
+```
+
+### 3. Rewinding
+
+After recording completes, everything rewinds:
+
+```gdscript
+# From recording_manager.gd:121
+func rewind_player() -> void:
+    var data = player_recordings[recording_id][current_frame] as FrameData
+    player.global_position = data.position
+    player.global_rotation = data.rotation
+    player_sprite.flip_h = data.flip_h
+    player_sprite.animation = data.animation_name
+    player_sprite.frame = data.animation_frame
+```
+
+### 4. Ghost playback
+
+When playing recordings, ghosts replay the captured frames:
+
+```gdscript
+# From recording_manager.gd:162
+func playback_ghosts() -> void:
+    for key in player_recordings:
+        if key == recording_id:
+            continue  # Don't play the current recording
+        
+        var data = player_recordings[key][current_frame] as FrameData
+        var ghost = ghosts[key]
+        ghost.global_position = data.position
+        # ... apply animation data
+```
+
+## Input reference
+
+Playback uses these input actions (defined in `project.godot`):
+
+| Action | Keys | Description |
+|--------|------|-------------|
+| `move_left` | A, Left Arrow | Move player left |
+| `move_right` | D, Right Arrow | Move player right |
+| `jump` | Space, W, Up Arrow | Charge and jump |
+| `start_recording` | E | Start recording |
+| `play_recording` | P | Play/stop recording playback |
+| `pause_playback` | Q | Pause/unpause playback |
+| `interact` | F | Interact with objects |
+
+<Info>
+  You can customize these inputs in **Project > Project Settings > Input Map**
+</Info>
+
+## Common patterns
+
+### Multiple recording triggers
+
+Create complex puzzles with multiple recording points:
+
+```gdscript
+# Add multiple RecordingTrigger children to RecordingManager
+RecordingManager
+├── RecordingTrigger (recording_id: 0)
+├── RecordingTrigger (recording_id: 1)
+└── RecordingTrigger (recording_id: 2)
+```
+
+Each trigger starts a new recording that plays back as a ghost.
+
+### Customizing recording duration
+
+Adjust the `recording_time` property on RecordingManager:
+
+```gdscript
+# Shorter recordings for fast-paced puzzles
+recording_time = 3.0
+
+# Longer recordings for complex maneuvers
+recording_time = 10.0
+```
+
+### Adjusting rewind speed
+
+Make rewind faster or slower with `rewind_speed`:
+
+```gdscript
+# Fast rewind
+rewind_speed = 2.0
+
+# Slow-motion rewind
+rewind_speed = 0.5
+```
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
+You've created a working level with recording and playback! Here's what to explore next:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Core systems" icon="gear" href="/core/recording-system">
+    Deep dive into the RecordingManager state machine and architecture
+  </Card>
+  <Card title="Player movement" icon="person-running" href="/components/player-movement">
+    Customize the platformer controls and physics
+  </Card>
+  <Card title="Level design" icon="map" href="/guides/creating-levels">
+    Learn patterns for designing time-based puzzles
+  </Card>
+  <Card title="API reference" icon="code" href="/api/recording-manager">
+    Explore all available classes and methods
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+## Troubleshooting
+
+### Ghosts don't appear
+
+- Verify the `ghost_scene` is assigned in RecordingManager
+- Check that the `ghosts_node` reference is set
+- Ensure you've completed at least one recording
+
+### Rewind doesn't work
+
+- Make sure objects are in the `rewindables` group
+- Check that RecordingManager has a reference to the player
+- Verify the player has an AnimatedSprite2D child node
+
+### Player can't move
+
+- Check `GameManager.userHasControl` - it may be disabled during rewind
+- Verify input actions are configured in Project Settings
+- Ensure the player's collision shape is set up correctly
+
+<Tip>
+  Use `print()` statements or the debugger to check the RecordingManager's `state` variable. It should transition through: IDLE → RECORDING → REWINDING → IDLE.
+</Tip>

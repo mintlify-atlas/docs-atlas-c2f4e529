@@ -1,0 +1,185 @@
+---
+title: FrameData
+description: Resource class storing a single frame of recorded position, rotation, and animation state
+---
+
+## Class Signature
+
+```gdscript
+extends Resource
+class_name FrameData
+```
+
+FrameData is a lightweight Resource used by RecordingManager to store snapshots of entity state at each physics frame. Each recording is an array of FrameData objects.
+
+## Export Fields
+
+```gdscript
+@export var position : Vector2
+@export var rotation : float
+@export var flip_h : bool
+@export var animation_name : String
+@export var animation_frame : int
+```
+
+<ParamField path="position" type="Vector2">
+  Global position of the entity at this frame
+</ParamField>
+
+<ParamField path="rotation" type="float">
+  Global rotation of the entity in radians
+</ParamField>
+
+<ParamField path="flip_h" type="bool">
+  Horizontal flip state of the sprite (true = flipped)
+</ParamField>
+
+<ParamField path="animation_name" type="String">
+  Name of the current animation (e.g., "idle", "walk", "jump")
+</ParamField>
+
+<ParamField path="animation_frame" type="int">
+  Current frame index within the animation
+</ParamField>
+
+## Constructor
+
+```gdscript
+func _init(p_position: Vector2, p_rotation: float, p_flip_h: bool, p_animation_name: String, p_animation_frame: int) -> void
+```
+
+Initializes a new FrameData instance with all required state information.
+
+<ParamField path="p_position" type="Vector2" required>
+  Global position to store
+</ParamField>
+
+<ParamField path="p_rotation" type="float" required>
+  Global rotation to store (radians)
+</ParamField>
+
+<ParamField path="p_flip_h" type="bool" required>
+  Sprite horizontal flip state
+</ParamField>
+
+<ParamField path="p_animation_name" type="String" required>
+  Animation name to store
+</ParamField>
+
+<ParamField path="p_animation_frame" type="int" required>
+  Animation frame index to store
+</ParamField>
+
+## Usage Examples
+
+### Recording Player Data
+
+```gdscript
+# From RecordingManager.record_player()
+var data = FrameData.new(
+    player.global_position,
+    player.global_rotation,
+    player_sprite.flip_h,
+    player_sprite.animation,
+    player_sprite.frame
+)
+
+player_recordings[recording_id].append(data)
+```
+
+### Recording Object Data (Position Only)
+
+```gdscript
+# From RecordingManager.record_objects()
+for obj in objs:
+    var data = FrameData.new(
+        obj.global_position,
+        obj.global_rotation,
+        false,  # No sprite flip for objects
+        "",     # No animation name
+        0       # No animation frame
+    )
+    
+    object_recordings[obj_id].append(data)
+```
+
+### Restoring from FrameData
+
+```gdscript
+# From RecordingManager.rewind_player()
+var data = player_recordings[recording_id][current_frame] as FrameData
+
+player.global_position = data.position
+player.global_rotation = data.rotation
+player_sprite.flip_h = data.flip_h
+player_sprite.animation = data.animation_name
+player_sprite.frame = data.animation_frame
+```
+
+### Ghost Playback
+
+```gdscript
+# From RecordingManager.playback_ghosts()
+var data = player_recordings[key][current_frame] as FrameData
+
+var ghost = ghosts[key]
+var ghost_sprite = ghost.find_child("AnimatedSprite2D") as AnimatedSprite2D
+
+ghost.global_position = data.position
+ghost.global_rotation = data.rotation
+if ghost_sprite:
+    ghost_sprite.flip_h = data.flip_h
+    ghost_sprite.animation = data.animation_name
+    ghost_sprite.frame = data.animation_frame
+```
+
+## Design Rationale
+
+<Expandable title="Why a Resource?">
+  FrameData extends Resource rather than RefCounted or Object because:
+  - Resources can be exported and inspected in the Godot editor
+  - Lightweight and optimized for frequent instantiation
+  - Can be saved to disk if persistent replays are needed
+  - Integrates with Godot's type system
+</Expandable>
+
+<Expandable title="Memory Considerations">
+  Each recording creates one FrameData per physics frame. At 60 FPS:
+  - 1 second = 60 FrameData objects
+  - 5 seconds = 300 FrameData objects
+  - Default `recording_time` of 5.0 seconds per recording
+  
+  For performance-critical scenarios, consider:
+  - Reducing `recording_time`
+  - Limiting simultaneous recordings
+  - Clearing old recordings when not needed
+</Expandable>
+
+## Fields Usage by Entity Type
+
+### Player Characters
+
+Uses all fields:
+- `position`, `rotation`: Transform data
+- `flip_h`: Sprite direction
+- `animation_name`, `animation_frame`: Full animation state
+
+### Rewindable Objects
+
+Only uses transform fields:
+- `position`, `rotation`: Transform data
+- `flip_h`, `animation_name`, `animation_frame`: Set to defaults (false, "", 0)
+
+## Integration with RecordingManager
+
+FrameData is stored in RecordingManager's dictionaries:
+
+```gdscript
+var player_recordings : Dictionary[int, Array] = {}
+#   recording_id -> Array[FrameData]
+
+var object_recordings : Dictionary[int, Array] = {}
+#   instance_id -> Array[FrameData]
+```
+
+Each array index represents a physics frame, creating a complete timeline of state changes.

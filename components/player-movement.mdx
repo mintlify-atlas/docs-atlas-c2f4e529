@@ -1,0 +1,193 @@
+---
+title: Player movement
+description: Control player character physics, movement, and jumping mechanics in Playback
+---
+
+The `PlayerMovement` class extends `CharacterBody2D` and handles all player movement, jumping mechanics, and physics interactions in your Playback game.
+
+## Overview
+
+PlayerMovement provides a charge-based jump system, horizontal movement with air control, and automatic RigidBody2D pushing. The class is designed to work with Godot's built-in physics engine and can be configured through exported parameters.
+
+**Location**: `Scripts/player_movement.gd`
+
+## Exported parameters
+
+You can configure these properties directly in the Godot editor:
+
+<ParamField path="SPEED" type="float" default="80.0">
+  Base horizontal movement speed in pixels per second
+</ParamField>
+
+<ParamField path="SPEED_MULT_WHILE_CHARGING" type="float" default="0.5">
+  Movement speed multiplier when charging a jump (reduces speed to 50% while charging)
+</ParamField>
+
+<ParamField path="SPEED_MULT_WHILE_IN_AIR" type="float" default="1.2">
+  Movement speed multiplier when airborne (increases air control to 120%)
+</ParamField>
+
+<ParamField path="BASE_JUMP_VELOCITY" type="float" default="-100.0">
+  Minimum jump velocity when the jump button is tapped without charging
+</ParamField>
+
+<ParamField path="MAX_JUMP_VELOCITY" type="float" default="-350.0">
+  Maximum jump velocity achievable by fully charging a jump
+</ParamField>
+
+<ParamField path="pushForce" type="float" default="80.0">
+  Force applied to RigidBody2D objects when the player collides with them
+</ParamField>
+
+<ParamField path="CHARGING_SPEED" type="float" default="1.0">
+  Rate at which jump power increases while holding the jump button
+</ParamField>
+
+## Charging jump mechanic
+
+The jump system uses a charge-based mechanic instead of fixed jump heights:
+
+<CodeGroup>
+```gdscript Charging logic
+# Start charging when jump pressed
+if Input.is_action_just_pressed("jump") and GameManager.userHasControl:
+    started_charging.emit()
+    is_charging_jump = true
+    jump_velocity = BASE_JUMP_VELOCITY
+
+# Increase jump power while holding
+if is_charging_jump and jump_velocity > MAX_JUMP_VELOCITY:
+    jump_velocity -= 5 * CHARGING_SPEED
+
+# Execute jump on release
+if Input.is_action_just_released("jump") and GameManager.userHasControl:
+    stopped_charging.emit()
+    is_charging_jump = false
+    
+    if is_grounded:
+        velocity.y = jump_velocity
+        AudioManager.play_sound(AudioResource.SoundEffect.PLAYER_JUMP)
+    
+    jump_velocity = 0.0
+```
+</CodeGroup>
+
+<Note>
+  The longer you hold the jump button, the higher the player will jump. Jump power increases until reaching `MAX_JUMP_VELOCITY`.
+</Note>
+
+### Jump signals
+
+PlayerMovement emits these signals during jump charging:
+
+- **`started_charging`** - Emitted when the player presses the jump button
+- **`stopped_charging`** - Emitted when the player releases the jump button
+- **`landed_on_ground`** - Emitted when the player lands after being airborne
+
+## Movement physics
+
+### Horizontal movement
+
+Movement speed adjusts based on player state:
+
+<Tabs>
+  <Tab title="Ground movement">
+    ```gdscript
+    # Normal ground speed
+    actual_speed = SPEED
+    
+    # Reduced speed while charging
+    if is_charging_jump:
+        actual_speed *= SPEED_MULT_WHILE_CHARGING
+    ```
+  </Tab>
+  <Tab title="Air movement">
+    ```gdscript
+    # Increased air control
+    if !is_grounded:
+        actual_speed *= SPEED_MULT_WHILE_IN_AIR
+    ```
+  </Tab>
+</Tabs>
+
+### Ground detection
+
+The player tracks ground contact and emits signals for state changes:
+
+```gdscript
+if not is_grounded and is_on_floor():
+    landed_on_ground.emit()
+
+is_grounded = is_on_floor()
+```
+
+## RigidBody2D interaction
+
+PlayerMovement automatically pushes RigidBody2D objects during collisions:
+
+```gdscript
+for i in get_slide_collision_count():
+    var coll = get_slide_collision(i)
+    if coll.get_collider() is RigidBody2D:
+        (coll.get_collider() as RigidBody2D).apply_central_impulse(
+            -coll.get_normal() * pushForce
+        )
+```
+
+<Note>
+  The push force is applied as an impulse in the opposite direction of the collision normal, creating realistic physics interactions.
+</Note>
+
+## Input handling
+
+PlayerMovement responds to input actions defined in `project.godot`:
+
+<ParamField path="jump" type="Input action">
+  **Keys**: Space, W, Up Arrow
+  
+  Hold to charge jump, release to execute
+</ParamField>
+
+<ParamField path="move_left" type="Input action">
+  **Keys**: Left Arrow, A
+  
+  Move player to the left
+</ParamField>
+
+<ParamField path="move_right" type="Input action">
+  **Keys**: Right Arrow, D
+  
+  Move player to the right
+</ParamField>
+
+### Control state
+
+Movement respects `GameManager.userHasControl` to enable or disable player input:
+
+```gdscript
+var direction := Input.get_axis("move_left", "move_right")
+
+if direction and GameManager.userHasControl:
+    velocity.x = direction * actual_speed
+else:
+    velocity.x = move_toward(velocity.x, 0, SPEED)
+```
+
+<Warning>
+  When `GameManager.userHasControl` is false (e.g., during replays or cutscenes), the player will decelerate but physics will continue to apply.
+</Warning>
+
+## Scene setup
+
+To use PlayerMovement in your scene:
+
+1. Create a CharacterBody2D node
+2. Attach the `player_movement.gd` script
+3. Add a CollisionShape2D child for physics collision
+4. Add an AnimatedSprite2D child for visuals
+5. Add the node to the `player` global group
+6. Configure exported properties in the Inspector
+
+<Note>
+  The script looks for a `C` key press to reload the scene via `GameManager.reaload_scene()` - this is a debug feature you may want to remove in production.
+</Note>

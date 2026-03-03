@@ -1,0 +1,278 @@
+---
+title: Rewind mechanics
+description: Learn how Playback reverses time by restoring player and object states from recorded frames
+---
+
+The rewind system is the core of Playback's time manipulation mechanics. It reverses gameplay by restoring previously recorded states, creating the illusion of time flowing backwards.
+
+## Rewind lifecycle
+
+Rewinding follows a clear start-stop pattern with proper state management:
+
+### Starting a rewind
+
+```gdscript Scripts/recording_manager.gd
+func start_rewinding(rewind_player: bool) -> void:
+	freeze_rigidbodies(true)
+	GameManager.set_player_rewinding(rewind_player)
+	GameManager.playerControl(not rewind_player)
+	should_rewind_player = rewind_player
+	state = State.REWINDING
+	
+	print("start rewinding")
+```
+
+<Info>
+The `rewind_player` parameter determines whether the player character rewinds or only the environment does. This allows for different gameplay scenarios.
+</Info>
+
+**What happens when rewinding starts:**
+
+1. All `RigidBody2D` objects are frozen to prevent physics interference
+2. Global game state is updated via `GameManager`
+3. Player control is disabled if the player is rewinding
+4. The `should_rewind_player` flag controls player restoration
+5. State transitions to `REWINDING`
+
+### Stopping a rewind
+
+```gdscript Scripts/recording_manager.gd
+func stop_rewinding() -> void:
+	freeze_rigidbodies(false)
+	
+	current_frame = 0
+	recording_id = -1
+	state = State.IDLE
+	GameManager.set_player_rewinding(false)
+	GameManager.playerControl(true)
+	player_sprite.reset_to_idle()
+	object_recordings.clear()
+```
+
+<Warning>
+Object recordings are cleared when rewinding stops. If you need to keep object state history, modify this behavior to preserve the data.
+</Warning>
+
+**Cleanup operations:**
+
+- Unfreezes all rigid bodies
+- Resets frame counter to 0
+- Clears the active recording ID
+- Returns to `IDLE` state
+- Re-enables player control
+- Resets player animation to idle
+- Clears object recording data
+
+## Rewind execution
+
+The rewind process runs every physics frame while in the `REWINDING` state:
+
+```gdscript Scripts/recording_manager.gd
+State.REWINDING:
+	current_frame -= 1 * rewind_speed
+	
+	if should_rewind_player:
+		rewind_player()
+	if !ghosts.is_empty():
+		playback_ghosts()
+	
+	rewind_objects()
+	
+	if current_frame <= 0: 
+		stop_rewinding()
+		clear_ghosts()
+		return
+```
+
+<Tabs>
+  <Tab title="Frame progression">
+    The `current_frame` counter decrements by `rewind_speed` each physics frame. When it reaches 0, rewinding automatically stops.
+    
+    Example with `rewind_speed = 2.0`:
+    - Frame 100 → 98 → 96 → 94 (2x speed rewind)
+  </Tab>
+  <Tab title="Restoration order">
+    1. **Player**: Restored if `should_rewind_player` is true
+    2. **Ghosts**: Played backwards if any exist
+    3. **Objects**: Always restored during rewind
+    4. **Completion check**: Auto-stops when reaching frame 0
+  </Tab>
+</Tabs>
+
+## Player rewind
+
+The player is restored to their exact recorded state:
+
+```gdscript Scripts/recording_manager.gd
+func rewind_player() -> void:
+	var data = player_recordings[recording_id][current_frame] as FrameData
+	
+	player.global_position = data.position
+	player.global_rotation = data.rotation
+	player_sprite.flip_h = data.flip_h
+	player_sprite.animation = data.animation_name
+	player_sprite.frame = data.animation_frame
+```
+
+**Restored properties:**
+
+- **Position**: Player's global coordinates
+- **Rotation**: Player's rotation angle
+- **Sprite flip**: Horizontal flip state for facing direction
+- **Animation**: Current animation clip name
+- **Frame**: Exact frame within the animation
+
+<Note>
+The player is directly positioned without physics simulation, ensuring frame-perfect accuracy of the rewind.
+</Note>
+
+## Object rewind
+
+Rewindable objects are restored with special handling for physics bodies:
+
+```gdscript Scripts/recording_manager.gd
+func rewind_objects() -> void:
+	for obj in objs:
+		var obj_id = obj.get_instance_id()
+		
+		var data = object_recordings[obj_id][current_frame] as FrameData
+		
+		if obj is RigidBody2D:
+			obj.set_deferred("global_position", data.position)
+			obj.set_deferred("global_rotation", data.rotation)
+			obj.set_deferred("linear_velocity", Vector2.ZERO)
+			obj.set_deferred("angular_velocity", 0.0)
+		else:
+			obj.global_position = data.position
+			obj.global_rotation = data.rotation
+```
+
+### RigidBody2D handling
+
+<Warning>
+Physics properties must be set using `set_deferred()` to avoid conflicts with Godot's physics engine. Direct assignment can cause crashes or unexpected behavior.
+</Warning>
+
+**Why special handling is needed:**
+
+- RigidBodies are managed by the physics engine
+- Direct property changes during physics steps can cause conflicts
+- `set_deferred()` queues the change for the end of the physics frame
+- Velocity is reset to prevent momentum accumulation
+
+### Non-physics objects
+
+Static bodies, kinematic bodies, and other nodes can be positioned directly without deferred calls.
+
+## Freezing rigid bodies
+
+To prevent physics interference during rewind, rigid bodies are frozen:
+
+```gdscript Scripts/recording_manager.gd
+func freeze_rigidbodies(frozen: bool) -> void:
+	for obj in objs:
+		if obj is RigidBody2D:
+			obj.freeze = frozen
+			if not frozen:
+				var initial_idx = initial_objs.find_custom(is_ein_jürgen.bind(obj.get_instance_id()))
+				var initial = initial_objs[initial_idx]
+				obj.global_position = initial.global_position
+				obj.global_rotation = initial.global_rotation
+				obj.linear_velocity = Vector2.ZERO
+				obj.angular_velocity = 0.0
+```
+
+<Tabs>
+  <Tab title="Freezing">
+    When `frozen = true`:
+    - Sets `RigidBody2D.freeze = true`
+    - Disables physics simulation
+    - Objects become static during rewind
+    - Prevents unwanted forces and collisions
+  </Tab>
+  <Tab title="Unfreezing">
+    When `frozen = false`:
+    - Restores physics simulation
+    - Resets to initial position/rotation
+    - Clears all velocity
+    - Ensures clean state after rewind
+  </Tab>
+</Tabs>
+
+<Info>
+The system stores `initial_objs` when recording starts to reset rigid bodies to their pre-recording state after rewind.
+</Info>
+
+## Rewind speed control
+
+Control how fast time reverses with the `rewind_speed` parameter:
+
+```gdscript Scripts/recording_manager.gd
+@export var rewind_speed: float = 1.0
+
+# In the REWINDING state:
+current_frame -= 1 * rewind_speed
+```
+
+**Speed examples:**
+
+- `1.0` - Normal rewind speed (1 frame back per physics frame)
+- `2.0` - 2x speed rewind
+- `0.5` - Slow-motion rewind
+- `10.0` - Very fast rewind (useful for long recordings)
+
+<Tip>
+Adjust rewind speed dynamically based on player input to give players control over the rewind tempo.
+</Tip>
+
+## Automatic rewind triggers
+
+Rewind can start automatically in certain conditions:
+
+### After recording timeout
+
+```gdscript Scripts/recording_manager.gd
+func _on_timer_timeout() -> void:
+	stop_recording()
+	start_rewinding(true)
+	GameManager.playerControl(false)
+```
+
+When the recording timer expires, the system automatically:
+1. Stops recording
+2. Starts rewinding with player included
+3. Disables player control
+
+### After playback completes
+
+```gdscript Scripts/recording_manager.gd
+State.PLAYING:
+	if current_frame >= frames_recorded - 1:
+		start_rewinding(false)
+		return
+```
+
+When ghost playback reaches the end, rewind starts without moving the player.
+
+## Best practices
+
+<Accordion title="Smooth rewind experience">
+  - Keep `rewind_speed` between 1.0 and 3.0 for readable playback
+  - Add visual effects (screen tint, particles) to indicate rewind state
+  - Play rewinding sound effects or reversed audio
+  - Show UI feedback for rewind progress
+</Accordion>
+
+<Accordion title="Performance optimization">
+  - Limit recording duration to keep frame data manageable
+  - Clear unnecessary object recordings when possible
+  - Use object pooling for ghosts instead of instantiate/free
+  - Consider frame skipping for very fast rewinds
+</Accordion>
+
+<Accordion title="Gameplay considerations">
+  - Decide whether player should rewind in different contexts
+  - Use `should_rewind_player` strategically for puzzle design
+  - Consider partial rewinds (not all the way to frame 0)
+  - Handle edge cases where objects are destroyed during recording
+</Accordion>

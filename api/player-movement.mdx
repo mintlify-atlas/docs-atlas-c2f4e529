@@ -1,0 +1,240 @@
+---
+title: PlayerMovement
+description: CharacterBody2D controller handling player movement, jump charging, and physics interactions
+---
+
+## Class Signature
+
+```gdscript
+extends CharacterBody2D
+class_name PlayerMovement
+```
+
+Handles player movement with variable jump charging, air control, and physics-based interactions with RigidBody2D objects.
+
+## Export Variables
+
+<ParamField path="SPEED" type="float" default="80.0">
+  Base movement speed on the ground
+</ParamField>
+
+<ParamField path="SPEED_MULT_WHILE_CHARGING" type="float" default="0.5">
+  Speed multiplier applied while charging a jump (0.5 = 50% speed)
+</ParamField>
+
+<ParamField path="SPEED_MULT_WHILE_IN_AIR" type="float" default="1.2">
+  Speed multiplier applied while airborne (1.2 = 120% speed)
+</ParamField>
+
+<ParamField path="BASE_JUMP_VELOCITY" type="float" default="-100.0">
+  Minimum jump strength when tap-jumping without charging
+</ParamField>
+
+<ParamField path="MAX_JUMP_VELOCITY" type="float" default="-350.0">
+  Maximum jump strength achieved through full charge
+</ParamField>
+
+<ParamField path="pushForce" type="float" default="80.0">
+  Force applied to RigidBody2D objects when the player collides with them
+</ParamField>
+
+<ParamField path="CHARGING_SPEED" type="float" default="1.0">
+  Rate at which jump velocity increases while holding jump button
+</ParamField>
+
+## Signals
+
+```gdscript
+signal started_charging
+signal stopped_charging
+signal landed_on_ground
+```
+
+<ResponseField name="started_charging" type="signal">
+  Emitted when the player presses the jump button and begins charging
+</ResponseField>
+
+<ResponseField name="stopped_charging" type="signal">
+  Emitted when the player releases the jump button
+</ResponseField>
+
+<ResponseField name="landed_on_ground" type="signal">
+  Emitted on the frame the player touches the ground after being airborne
+</ResponseField>
+
+## State Variables
+
+```gdscript
+var is_charging_jump : bool = false
+var jump_velocity : float = 0.0
+var is_grounded : bool = false
+```
+
+<ResponseField name="is_charging_jump" type="bool">
+  True while the jump button is held and charging
+</ResponseField>
+
+<ResponseField name="jump_velocity" type="float">
+  Current charged jump velocity value
+</ResponseField>
+
+<ResponseField name="is_grounded" type="bool">
+  True when the player is on the floor (uses `is_on_floor()`)
+</ResponseField>
+
+## Physics Logic
+
+The player movement system operates in `_physics_process` with the following behavior:
+
+### Ground Detection
+
+```gdscript
+if not is_grounded and is_on_floor():
+    landed_on_ground.emit()
+
+is_grounded = is_on_floor()
+```
+
+Detects landing transitions and updates grounded state each frame.
+
+### Gravity
+
+```gdscript
+if !is_grounded:
+    velocity += get_gravity() * delta
+    actual_speed *= SPEED_MULT_WHILE_IN_AIR
+```
+
+Applies gravity when airborne and modifies horizontal speed.
+
+### Jump Charging
+
+<Expandable title="Jump System Details">
+  1. **Start Charging**: Press jump button while grounded
+     - Emits `started_charging`
+     - Sets `is_charging_jump = true`
+     - Initializes `jump_velocity` to `BASE_JUMP_VELOCITY`
+
+  2. **Charge Accumulation**: Hold jump button
+     ```gdscript
+     if is_charging_jump and jump_velocity > MAX_JUMP_VELOCITY:
+         jump_velocity -= 5 * CHARGING_SPEED
+     ```
+     - Increases jump power until reaching `MAX_JUMP_VELOCITY`
+     - Rate controlled by `CHARGING_SPEED`
+
+  3. **Execute Jump**: Release jump button
+     - Emits `stopped_charging`
+     - Applies `jump_velocity` to `velocity.y` if grounded
+     - Plays jump sound via AudioManager
+     - Resets charging state
+</Expandable>
+
+**Example Jump Values:**
+```gdscript
+# Quick tap: jump_velocity = -100.0
+# Full charge: jump_velocity = -350.0
+```
+
+### Horizontal Movement
+
+```gdscript
+var direction := Input.get_axis("move_left", "move_right")
+
+if direction and GameManager.userHasControl:
+    if !is_grounded:
+        actual_speed *= SPEED_MULT_WHILE_IN_AIR
+    elif is_charging_jump:
+        actual_speed *= SPEED_MULT_WHILE_CHARGING
+    
+    velocity.x = direction * actual_speed
+else:
+    velocity.x = move_toward(velocity.x, 0, SPEED)
+```
+
+<Expandable title="Movement Behavior">
+  - **Ground Movement**: Base speed of `SPEED`
+  - **Charging Movement**: `SPEED * SPEED_MULT_WHILE_CHARGING` (50% by default)
+  - **Air Movement**: `SPEED * SPEED_MULT_WHILE_IN_AIR` (120% by default)
+  - **Deceleration**: Smoothly returns to zero when no input
+  - **Control Gate**: Only responds to input when `GameManager.userHasControl` is true
+</Expandable>
+
+### Collision Physics
+
+```gdscript
+move_and_slide()
+
+for i in get_slide_collision_count():
+    var coll = get_slide_collision(i)
+    if coll.get_collider() is RigidBody2D:
+        (coll.get_collider() as RigidBody2D).apply_central_impulse(-coll.get_normal() * pushForce)
+```
+
+Applies impulse forces to RigidBody2D objects based on collision normal and `pushForce` value.
+
+## Input Actions Required
+
+The following input actions must be defined in your project settings:
+
+<ResponseField name="jump" type="InputAction">
+  Jump button (hold to charge, release to jump)
+</ResponseField>
+
+<ResponseField name="move_left" type="InputAction">
+  Move left input
+</ResponseField>
+
+<ResponseField name="move_right" type="InputAction">
+  Move right input
+</ResponseField>
+
+## Debug Controls
+
+```gdscript
+if Input.is_key_pressed(KEY_C):
+    GameManager.reaload_scene()
+```
+
+The C key instantly reloads the current scene (useful for testing).
+
+## Integration with GameManager
+
+PlayerMovement respects global control state:
+
+```gdscript
+if GameManager.userHasControl:
+    # Process input
+```
+
+This allows the RecordingManager or other systems to disable player control during rewinding or cutscenes.
+
+## Usage Example
+
+```gdscript
+# In your player scene
+var player = PlayerMovement.new()
+
+# Connect to signals
+player.started_charging.connect(_on_player_started_charging)
+player.stopped_charging.connect(_on_player_stopped_charging)
+player.landed_on_ground.connect(_on_player_landed)
+
+func _on_player_started_charging():
+    # Play charging animation/sound
+    pass
+
+func _on_player_stopped_charging():
+    # Stop charging effects
+    pass
+
+func _on_player_landed():
+    # Play landing animation/particles
+    pass
+```
+
+## Required Child Nodes
+
+The PlayerMovement expects:
+- An `AnimatedSprite2D` child node for visual representation (referenced by RecordingManager)
+- Collision shapes for physics interactions

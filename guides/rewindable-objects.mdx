@@ -1,0 +1,227 @@
+---
+title: Rewindable objects
+description: Learn how to make objects rewindable in Playback by adding them to the rewindables group and understanding how the recording system tracks their movement.
+---
+
+Playback's time-rewind mechanic works by recording object states every physics frame. Any object added to the `"rewindables"` group will have its position and rotation tracked during recording and restored during rewind.
+
+## Adding objects to the rewindables group
+
+To make an object rewindable, add it to the `"rewindables"` group in your scene file:
+
+<CodeGroup>
+  ```gdscript Crate (RigidBody2D)
+  [node name="Crate" type="RigidBody2D" groups=["button_interact", "rewindables"]]
+  mass = 4.0
+  physics_material_override = SubResource("PhysicsMaterial_i4r3v")
+  script = ExtResource("1_i4r3v")
+  ```
+
+  ```gdscript Box (RigidBody2D)
+  [node name="Box" type="RigidBody2D" groups=["rewindables"]]
+  mass = 3.0
+  ```
+</CodeGroup>
+
+<Steps>
+  <Step title="Select your node">
+    In the Godot editor, select the node you want to make rewindable (e.g., a crate, box, or custom object).
+  </Step>
+
+  <Step title="Open the groups panel">
+    In the Scene dock, click the "Node" tab, then select the "Groups" section.
+  </Step>
+
+  <Step title="Add the rewindables group">
+    Type `rewindables` in the group name field and click "Add" to add your node to this group.
+  </Step>
+
+  <Step title="Verify in scene file">
+    Your scene file should now show `groups=["rewindables"]` in the node definition. If the object also interacts with buttons, include both groups: `groups=["button_interact", "rewindables"]`.
+  </Step>
+</Steps>
+
+<Note>
+  The `recording_manager.gd` script automatically finds all nodes in the `"rewindables"` group when recording starts:
+
+  ```gdscript
+  objs = get_tree().get_nodes_in_group("rewindables")
+  ```
+</Note>
+
+## RigidBody2D vs other node types
+
+The recording system handles `RigidBody2D` nodes differently from other node types due to physics simulation requirements.
+
+### RigidBody2D objects
+
+For physics-enabled objects like crates and boxes:
+
+- Position and rotation changes are applied using `set_deferred()` to avoid physics conflicts
+- Linear and angular velocity are reset to zero during rewind
+- Objects are frozen during rewind to prevent physics interference
+
+```gdscript recording_manager.gd:153
+if obj is RigidBody2D:
+    obj.set_deferred("global_position", data.position)
+    obj.set_deferred("global_rotation", data.rotation)
+    obj.set_deferred("linear_velocity", Vector2.ZERO)
+    obj.set_deferred("angular_velocity", 0.0)
+```
+
+<Warning>
+  Always use `set_deferred()` when modifying `RigidBody2D` properties during physics processing. Direct assignment can cause physics errors and instability.
+</Warning>
+
+### Other node types
+
+For non-physics nodes (StaticBody2D, Node2D, etc.):
+
+- Position and rotation are set directly without deferred calls
+- No velocity management needed
+- Simpler and more predictable behavior
+
+```gdscript recording_manager.gd:158
+else:
+    obj.global_position = data.position
+    obj.global_rotation = data.rotation
+```
+
+## How the recording manager tracks objects
+
+The recording system operates in distinct states and records object data each physics frame:
+
+### Recording phase
+
+When recording starts (player steps on a RecordingTrigger):
+
+1. All objects in the `"rewindables"` group are collected
+2. Each physics frame, position and rotation data is stored in `object_recordings` dictionary
+3. Each object's instance ID is used as the dictionary key
+
+```gdscript recording_manager.gd:130
+func record_objects() -> void:
+    for obj in objs:
+        var obj_id = obj.get_instance_id()
+        
+        var data = FrameData.new(
+            obj.global_position,
+            obj.global_rotation,
+            false,
+            "",
+            0
+        )
+        
+        if current_frame == 0:
+            object_recordings[obj_id] = [data]
+        else:
+            object_recordings[obj_id].append(data)
+```
+
+### Rewinding phase
+
+During rewind:
+
+1. `RigidBody2D` objects are frozen to prevent physics calculations
+2. Each frame, stored data is retrieved and applied to objects
+3. Frame counter decrements until reaching frame 0
+4. Objects return to their exact recorded positions
+
+```gdscript recording_manager.gd:147
+func rewind_objects() -> void:
+    for obj in objs:
+        var obj_id = obj.get_instance_id()
+        
+        var data = object_recordings[obj_id][current_frame] as FrameData
+        
+        if obj is RigidBody2D:
+            obj.set_deferred("global_position", data.position)
+            obj.set_deferred("global_rotation", data.rotation)
+            obj.set_deferred("linear_velocity", Vector2.ZERO)
+            obj.set_deferred("angular_velocity", 0.0)
+        else:
+            obj.global_position = data.position
+            obj.global_rotation = data.rotation
+```
+
+<Tip>
+  The `FrameData` resource stores position, rotation, flip_h (for sprites), animation name, and frame number. For objects, only position and rotation are used.
+</Tip>
+
+## Button interactions
+
+Objects can interact with buttons if they're also in the `"button_interact"` group:
+
+```gdscript crate.tscn:12
+[node name="Crate" type="RigidBody2D" groups=["button_interact", "rewindables"]]
+```
+
+Buttons detect these objects in their area:
+
+```gdscript button.gd:27
+func onAreaEntered(node : Node) -> void:
+    if node.is_in_group("button_interact"):
+        nodesOnButton += 1
+        if nodesOnButton == 1:
+            pressButton()
+```
+
+When a rewindable object with `"button_interact"` group enters a button's area:
+1. Button press count increments
+2. Button sprite changes to pressed frame
+3. Button sound effect plays (`BUTTON_PRESSED`)
+4. Signal emitted to connected systems (e.g., door opening)
+
+<Accordion title="Complete button interaction code">
+  ```gdscript button.gd:16
+  func pressButton() -> void:
+      sprite.frame = 1
+      AudioManager.play_sound(AudioResource.SoundEffect.BUTTON_PRESSED)
+      onButtonPressed.emit()
+
+  func releaseButton() -> void:
+      sprite.frame = 0
+      AudioManager.play_sound(AudioResource.SoundEffect.BUTTON_RELEASED)
+      onButtonReleased.emit()
+  ```
+</Accordion>
+
+## Collision handling during rewind
+
+During rewind, physics objects are frozen to prevent interference:
+
+```gdscript recording_manager.gd:264
+func freeze_rigidbodies(frozen: bool) -> void:
+    for obj in objs:
+        if obj is RigidBody2D:
+            obj.freeze = frozen
+            if not frozen:
+                var initial_idx = initial_objs.find_custom(is_ein_jürgen.bind(obj.get_instance_id()))
+                var initial = initial_objs[initial_idx]
+                obj.global_position = initial.global_position
+                obj.global_rotation = initial.global_rotation
+                obj.linear_velocity = Vector2.ZERO
+                obj.angular_velocity = 0.0
+```
+
+When rewinding:
+- `freeze = true` disables physics calculations
+- Objects smoothly interpolate to recorded positions
+- No collision responses or forces applied
+- After rewind completes, objects reset to initial state and unfreeze
+
+<Note>
+  The initial object states are captured when recording starts and used to reset objects after rewind completes, ensuring puzzle replayability.
+</Note>
+
+## Best practices
+
+- Use `RigidBody2D` for objects that need realistic physics interactions
+- Keep rewindable object count reasonable for performance
+- Test that objects return to exact starting positions after full rewind
+- Add `"button_interact"` group for objects that should activate buttons
+- Consider object mass and friction for puzzle difficulty tuning
+
+<Warning>
+  Avoid removing or adding objects to the scene during recording, as this will cause runtime errors when the recording manager tries to access them.
+</Warning>

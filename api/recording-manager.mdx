@@ -1,0 +1,306 @@
+---
+title: RecordingManager
+description: Core class for managing player and object recordings, playback, and rewinding in the Playback framework
+---
+
+## Class Signature
+
+```gdscript
+extends Node
+class_name RecordingManager
+```
+
+The `RecordingManager` handles all recording, playback, and rewinding functionality. It tracks player movements, object positions, and spawns ghost replays of previous recordings.
+
+## Export Variables
+
+<ParamField path="ghost_scene" type="PackedScene">
+  Scene to instantiate for ghost playback of previous recordings
+</ParamField>
+
+<ParamField path="rewind_speed" type="float" default="1.0">
+  Speed multiplier for rewinding. Higher values rewind faster
+</ParamField>
+
+<ParamField path="recording_time" type="float" default="5.0">
+  Maximum duration in seconds for a single recording
+</ParamField>
+
+<ParamField path="ghosts_node" type="Node">
+  Parent node where ghost instances will be added during playback
+</ParamField>
+
+<ParamField path="player" type="CharacterBody2D">
+  Reference to the player character being recorded
+</ParamField>
+
+## State Enum
+
+The manager operates in one of five states:
+
+```gdscript
+enum State {
+    IDLE,
+    PLAYING,
+    RECORDING,
+    REWINDING,
+    PAUSED
+}
+```
+
+<ResponseField name="IDLE" type="State">
+  No active recording or playback
+</ResponseField>
+
+<ResponseField name="PLAYING" type="State">
+  Playing back previous recordings via ghosts
+</ResponseField>
+
+<ResponseField name="RECORDING" type="State">
+  Actively recording player and object data
+</ResponseField>
+
+<ResponseField name="REWINDING" type="State">
+  Rewinding player and/or objects to previous positions
+</ResponseField>
+
+<ResponseField name="PAUSED" type="State">
+  Playback is paused
+</ResponseField>
+
+## Signals
+
+```gdscript
+signal stopped_rewinding
+```
+
+Emitted when rewinding completes and returns to IDLE state.
+
+## Dictionary Structures
+
+### player_recordings
+
+```gdscript
+var player_recordings : Dictionary[int, Array] = {}
+```
+
+Stores recorded frame data for each recording session. Keys are recording IDs, values are arrays of `FrameData` objects.
+
+### object_recordings
+
+```gdscript
+var object_recordings : Dictionary[int, Array] = {}
+```
+
+Stores position/rotation data for rewindable objects. Keys are instance IDs from `get_instance_id()`, values are arrays of `FrameData` objects.
+
+### ghosts
+
+```gdscript
+var ghosts : Dictionary[int, CharacterBody2D]
+```
+
+Active ghost instances. Keys are recording IDs, values are instantiated ghost CharacterBody2D nodes.
+
+## Public Methods
+
+### start_recording
+
+```gdscript
+func start_recording(rec_id: int) -> void
+```
+
+Begins recording player and object data.
+
+<ParamField path="rec_id" type="int" required>
+  Unique identifier for this recording session
+</ParamField>
+
+<Expandable title="Details">
+  - Only works when state is `IDLE`
+  - Automatically finds player sprite (`AnimatedSprite2D` child)
+  - Collects all nodes in the "rewindables" group
+  - Spawns ghosts from previous recordings
+  - Starts internal timer based on `recording_time`
+  - Clears previous recording with same ID if it exists
+</Expandable>
+
+**Example:**
+```gdscript
+recording_manager.start_recording(1)
+```
+
+### stop_recording
+
+```gdscript
+func stop_recording() -> void
+```
+
+Stops the current recording session. Called automatically when the timer expires.
+
+<Expandable title="Details">
+  - Sets `should_rewind_player` to true
+  - Stores total frame count in `frames_recorded`
+  - Does not change state (usually followed by `start_rewinding`)
+</Expandable>
+
+### start_rewinding
+
+```gdscript
+func start_rewinding(rewind_player: bool) -> void
+```
+
+Begins rewinding recorded data.
+
+<ParamField path="rewind_player" type="bool" required>
+  If true, rewinds the player character. If false, only rewinds ghosts and objects
+</ParamField>
+
+<Expandable title="Details">
+  - Freezes all RigidBody2D objects in the scene
+  - Updates GameManager player control state
+  - Rewinds at speed determined by `rewind_speed`
+  - Automatically calls `stop_rewinding()` when reaching frame 0
+</Expandable>
+
+**Example:**
+```gdscript
+# Rewind player after recording
+recording_manager.start_rewinding(true)
+
+# Only rewind environment objects
+recording_manager.start_rewinding(false)
+```
+
+### stop_rewinding
+
+```gdscript
+func stop_rewinding() -> void
+```
+
+Stops rewinding and returns to IDLE state.
+
+<Expandable title="Details">
+  - Unfreezes RigidBody2D objects
+  - Restores player control via GameManager
+  - Clears object recordings
+  - Resets player sprite to idle animation
+  - Resets frame counter and recording ID
+  - Emits `stopped_rewinding` signal
+</Expandable>
+
+### spawn_ghosts
+
+```gdscript
+func spawn_ghosts() -> void
+```
+
+Instantiates ghost nodes for all previous recordings (except current recording ID).
+
+<Expandable title="Details">
+  - Creates instances from `ghost_scene`
+  - Positions ghosts at the first frame of their recording
+  - Adds ghosts as children of `ghosts_node`
+  - Stores references in `ghosts` dictionary
+</Expandable>
+
+### clear_ghosts
+
+```gdscript
+func clear_ghosts() -> void
+```
+
+Removes all ghost instances from the scene.
+
+<Expandable title="Details">
+  - Calls `queue_free()` on all ghost nodes
+  - Clears the `ghosts` dictionary
+</Expandable>
+
+### playback_ghosts
+
+```gdscript
+func playback_ghosts() -> void
+```
+
+Updates ghost positions and animations based on current frame. Called automatically during RECORDING, REWINDING, and PLAYING states.
+
+<Expandable title="Details">
+  - Skips current recording ID
+  - Updates position, rotation, sprite flip, animation name, and frame
+  - Handles recordings shorter than current frame gracefully
+</Expandable>
+
+### record_player
+
+```gdscript
+func record_player() -> void
+```
+
+Captures current player frame data. Called automatically during RECORDING state in `_physics_process`.
+
+<Expandable title="Details">
+  Creates FrameData with:
+  - `global_position`
+  - `global_rotation`
+  - Sprite `flip_h`
+  - Animation name
+  - Animation frame
+</Expandable>
+
+### rewind_player
+
+```gdscript
+func rewind_player() -> void
+```
+
+Restores player to position/state at current frame. Called automatically during REWINDING state when `should_rewind_player` is true.
+
+### record_objects
+
+```gdscript
+func record_objects() -> void
+```
+
+Captures position and rotation for all objects in the "rewindables" group. Called during RECORDING and PLAYING states.
+
+### rewind_objects
+
+```gdscript
+func rewind_objects() -> void
+```
+
+Restores object positions to current frame. Uses `set_deferred` for RigidBody2D objects and resets velocities.
+
+### freeze_rigidbodies
+
+```gdscript
+func freeze_rigidbodies(frozen: bool) -> void
+```
+
+Freezes or unfreezes all RigidBody2D objects in the rewindables group.
+
+<ParamField path="frozen" type="bool" required>
+  If true, freezes physics. If false, unfreezes and resets to initial state
+</ParamField>
+
+<Expandable title="Details">
+  When unfreezing:
+  - Restores initial position and rotation
+  - Zeros out linear and angular velocity
+</Expandable>
+
+## Input Actions
+
+The RecordingManager responds to these input actions:
+
+- **play_recording**: Spawns ghosts and starts playback (only in IDLE state)
+- **pause_playback**: Toggles between PLAYING and PAUSED states
+
+## Groups Required
+
+Objects that should be recorded and rewound must be in the "rewindables" group:
+
+```gdscript
+add_to_group("rewindables")
+```

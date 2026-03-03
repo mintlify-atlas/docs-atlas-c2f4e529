@@ -1,0 +1,275 @@
+---
+title: GameManager
+description: Global autoload singleton managing game state, time scale, player control, and scene transitions
+---
+
+## Class Signature
+
+```gdscript
+extends Node
+```
+
+GameManager is an autoload singleton that provides global game state management and utility functions. Access it from any script using `GameManager.function_name()`.
+
+## State Variables
+
+```gdscript
+var userHasControl : bool = true
+var playerIsRewinding : bool = false
+```
+
+<ResponseField name="userHasControl" type="bool" default="true">
+  Controls whether the player can receive input. Set to false during cutscenes, rewinding, or other restricted states
+</ResponseField>
+
+<ResponseField name="playerIsRewinding" type="bool" default="false">
+  Indicates if the player is currently in a rewind state. Updated by RecordingManager
+</ResponseField>
+
+## Constants
+
+```gdscript
+const timeToHoldRestart : float = 3.0
+```
+
+<ResponseField name="timeToHoldRestart" type="float" default="3.0">
+  Duration in seconds that the R key must be held to trigger a scene restart
+</ResponseField>
+
+## Internal Variables
+
+```gdscript
+var timeSinceRestartHeld : float = 0.0
+@onready var restartProgressBar : TextureProgressBar
+```
+
+Used for tracking restart hold duration and displaying progress feedback.
+
+## Global Functions
+
+### quit
+
+```gdscript
+func quit() -> void
+```
+
+Quits the application immediately.
+
+**Example:**
+```gdscript
+GameManager.quit()
+```
+
+### setTimeScale
+
+```gdscript
+func setTimeScale(scale: float) -> void
+```
+
+Sets the global time scale for slow-motion or fast-forward effects.
+
+<ParamField path="scale" type="float" required>
+  Time scale multiplier. 1.0 = normal speed, 0.5 = half speed, 2.0 = double speed
+</ParamField>
+
+**Example:**
+```gdscript
+# Slow motion
+GameManager.setTimeScale(0.3)
+
+# Return to normal
+GameManager.setTimeScale(1.0)
+
+# Fast forward
+GameManager.setTimeScale(2.0)
+```
+
+<Expandable title="Implementation Details">
+  ```gdscript
+  Engine.time_scale = scale
+  ```
+  Modifies Godot's global time scale, affecting physics, timers, and animations.
+</Expandable>
+
+### set_player_rewinding
+
+```gdscript
+func set_player_rewinding(r: bool) -> void
+```
+
+Updates the player rewinding state. Called by RecordingManager.
+
+<ParamField path="r" type="bool" required>
+  True if player is rewinding, false otherwise
+</ParamField>
+
+**Example:**
+```gdscript
+GameManager.set_player_rewinding(true)
+```
+
+### playerControl
+
+```gdscript
+func playerControl(control: bool) -> void
+```
+
+Enables or disables player input control globally.
+
+<ParamField path="control" type="bool" required>
+  If true, enables player control. If false, player cannot provide input
+</ParamField>
+
+**Example:**
+```gdscript
+# Disable control during cutscene
+GameManager.playerControl(false)
+
+# Re-enable after cutscene
+GameManager.playerControl(true)
+```
+
+<Expandable title="Usage Notes">
+  PlayerMovement and other player scripts should check `GameManager.userHasControl` before processing input:
+  ```gdscript
+  if GameManager.userHasControl:
+      # Process player input
+  ```
+</Expandable>
+
+### showMouse
+
+```gdscript
+func showMouse(show: bool) -> void
+```
+
+Controls mouse cursor visibility.
+
+<ParamField path="show" type="bool" required>
+  If true, shows cursor. If false, captures and hides cursor
+</ParamField>
+
+**Example:**
+```gdscript
+# Show cursor for menu
+GameManager.showMouse(true)
+
+# Hide cursor for gameplay
+GameManager.showMouse(false)
+```
+
+<Expandable title="Implementation Details">
+  ```gdscript
+  if show:
+      Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+  else:
+      Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+  ```
+</Expandable>
+
+### load_scene
+
+```gdscript
+func load_scene(path: String) -> void
+```
+
+Loads a different scene by file path.
+
+<ParamField path="path" type="String" required>
+  File path to the scene (e.g., "res://scenes/level_2.tscn")
+</ParamField>
+
+**Example:**
+```gdscript
+GameManager.load_scene("res://scenes/main_menu.tscn")
+```
+
+### reaload_scene
+
+```gdscript
+func reaload_scene() -> void
+```
+
+Reloads the current scene, resetting all state.
+
+**Example:**
+```gdscript
+GameManager.reaload_scene()
+```
+
+<Expandable title="Usage Note">
+  Note the typo in the function name (`reaload` instead of `reload`). This is preserved from the source code.
+</Expandable>
+
+## Built-in Input Handling
+
+GameManager processes input in `_process`:
+
+### Quit on Pause
+
+```gdscript
+if Input.is_action_just_pressed("pause"):
+    GameManager.quit()
+```
+
+The "pause" input action immediately quits the game.
+
+### Hold R to Restart
+
+```gdscript
+if Input.is_key_pressed(KEY_R):
+    if GameManager.timeSinceRestartHeld >= GameManager.timeToHoldRestart:
+        GameManager.reaload_scene()
+        return
+    
+    GameManager.timeSinceRestartHeld += delta
+else:
+    GameManager.timeSinceRestartHeld = 0.0
+
+GameManager.restartProgressBar.value = GameManager.timeSinceRestartHeld / GameManager.timeToHoldRestart * 100.0
+```
+
+<Expandable title="Restart Behavior">
+  - Hold R key for `timeToHoldRestart` seconds (default 3.0)
+  - Progress tracked in `timeSinceRestartHeld`
+  - Visual feedback via `restartProgressBar` (0-100%)
+  - Releases key resets the timer
+  - Scene reloads when timer reaches threshold
+</Expandable>
+
+## Setup as Autoload
+
+Add GameManager to your project autoload:
+
+1. Go to Project → Project Settings → Autoload
+2. Add the game_manager.gd script
+3. Set the Node Name to "GameManager"
+4. Enable the autoload
+
+Now access it globally:
+```gdscript
+GameManager.playerControl(false)
+GameManager.setTimeScale(0.5)
+GameManager.load_scene("res://scenes/level_2.tscn")
+```
+
+## Required Input Actions
+
+<ResponseField name="pause" type="InputAction">
+  Triggers immediate application quit
+</ResponseField>
+
+## Integration Example
+
+```gdscript
+# Recording Manager integration
+func start_rewinding(rewind_player: bool) -> void:
+    GameManager.set_player_rewinding(rewind_player)
+    GameManager.playerControl(not rewind_player)
+    # ... rewinding logic
+
+func stop_rewinding() -> void:
+    GameManager.set_player_rewinding(false)
+    GameManager.playerControl(true)
+    # ... cleanup
+```

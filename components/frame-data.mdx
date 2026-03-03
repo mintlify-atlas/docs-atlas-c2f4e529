@@ -1,0 +1,306 @@
+---
+title: Frame data
+description: Capture and store per-frame snapshots of game state in Playback
+---
+
+The `FrameData` resource captures complete per-frame snapshots of player and object state, enabling precise recording and playback of gameplay.
+
+## Overview
+
+FrameData is a Godot Resource class that stores all necessary information to recreate a single frame of gameplay. It captures transform data, sprite orientation, and animation state.
+
+**Location**: `Scripts/Resources/FrameData.gd`
+
+## Resource structure
+
+```gdscript
+extends Resource
+class_name FrameData
+ 
+@export var position : Vector2
+@export var rotation : float
+@export var flip_h : bool
+@export var animation_name : String
+@export var animation_frame : int
+```
+
+### Properties
+
+<ParamField path="position" type="Vector2">
+  Global position of the entity in 2D space
+</ParamField>
+
+<ParamField path="rotation" type="float">
+  Global rotation angle in radians
+</ParamField>
+
+<ParamField path="flip_h" type="bool">
+  Whether the sprite is horizontally flipped (typically used for facing direction)
+</ParamField>
+
+<ParamField path="animation_name" type="String">
+  Name of the currently playing animation (e.g., "idle", "run", "jump")
+</ParamField>
+
+<ParamField path="animation_frame" type="int">
+  Current frame number within the animation
+</ParamField>
+
+## Constructor
+
+FrameData uses a custom initializer to set all properties at creation:
+
+```gdscript
+func _init(
+    p_position: Vector2, 
+    p_rotation: float, 
+    p_flip_h: bool, 
+    p_animation_name: String, 
+    p_animation_frame: int
+) -> void:
+    position = p_position
+    rotation = p_rotation
+    flip_h = p_flip_h
+    animation_name = p_animation_name
+    animation_frame = p_animation_frame
+```
+
+<Note>
+  All FrameData instances are created with all properties initialized. There are no default values - you must provide complete data.
+</Note>
+
+## Data captured per frame
+
+FrameData captures different data depending on the entity type:
+
+<Tabs>
+  <Tab title="Player/Ghost">
+    Full animation data is captured for player characters:
+    
+    ```gdscript
+    var data = FrameData.new(
+        player.global_position,
+        player.global_rotation,
+        player_sprite.flip_h,
+        player_sprite.animation,
+        player_sprite.frame
+    )
+    ```
+    
+    **Captured properties**:
+    - Transform (position, rotation)
+    - Sprite direction (flip_h)
+    - Animation state (animation name, frame number)
+  </Tab>
+  <Tab title="Objects">
+    Only transform data is captured for rewindable objects:
+    
+    ```gdscript
+    var data = FrameData.new(
+        obj.global_position,
+        obj.global_rotation,
+        false,
+        "",
+        0
+    )
+    ```
+    
+    **Captured properties**:
+    - Transform (position, rotation)
+    - Animation fields are empty/default
+  </Tab>
+</Tabs>
+
+<Warning>
+  Objects in the `rewindables` group only record transform data. Animation properties are set to defaults (`false`, `""`, `0`).
+</Warning>
+
+## Usage in recording
+
+FrameData is created every physics frame during recording:
+
+<CodeGroup>
+```gdscript Player recording
+func record_player() -> void:
+    var data = FrameData.new(
+        player.global_position,
+        player.global_rotation,
+        player_sprite.flip_h,
+        player_sprite.animation,
+        player_sprite.frame
+    )
+    
+    if current_frame == 0:
+        player_recordings[recording_id] = [data]
+    else:
+        player_recordings[recording_id].append(data)
+```
+
+```gdscript Object recording
+func record_objects() -> void:
+    for obj in objs:
+        var obj_id = obj.get_instance_id()
+        
+        var data = FrameData.new(
+            obj.global_position,
+            obj.global_rotation,
+            false,
+            "",
+            0
+        )
+        
+        if current_frame == 0:
+            object_recordings[obj_id] = [data]
+        else:
+            object_recordings[obj_id].append(data)
+```
+</CodeGroup>
+
+### Recording storage
+
+Recordings are stored as arrays of FrameData:
+
+<ParamField path="player_recordings" type="Dictionary[int, Array]">
+  Maps recording IDs to arrays of player FrameData
+  
+  ```gdscript
+  player_recordings[recording_id] = [FrameData, FrameData, ...]
+  ```
+</ParamField>
+
+<ParamField path="object_recordings" type="Dictionary[int, Array]">
+  Maps object instance IDs to arrays of object FrameData
+  
+  ```gdscript
+  object_recordings[obj.get_instance_id()] = [FrameData, FrameData, ...]
+  ```
+</ParamField>
+
+## Usage in playback
+
+During playback, FrameData is retrieved and applied to entities:
+
+<Tabs>
+  <Tab title="Ghost playback">
+    ```gdscript
+    var data = player_recordings[key][current_frame] as FrameData
+    
+    var ghost = ghosts[key]
+    var ghost_sprite = ghost.find_child("AnimatedSprite2D") as AnimatedSprite2D
+
+    ghost.global_position = data.position
+    ghost.global_rotation = data.rotation
+    if ghost_sprite:
+        ghost_sprite.flip_h = data.flip_h
+        ghost_sprite.animation = data.animation_name
+        ghost_sprite.frame = data.animation_frame
+    ```
+  </Tab>
+  <Tab title="Player rewind">
+    ```gdscript
+    var data = player_recordings[recording_id][current_frame] as FrameData
+    
+    player.global_position = data.position
+    player.global_rotation = data.rotation
+    player_sprite.flip_h = data.flip_h
+    player_sprite.animation = data.animation_name
+    player_sprite.frame = data.animation_frame
+    ```
+  </Tab>
+  <Tab title="Object rewind">
+    ```gdscript
+    var data = object_recordings[obj_id][current_frame] as FrameData
+    
+    if obj is RigidBody2D:
+        obj.set_deferred("global_position", data.position)
+        obj.set_deferred("global_rotation", data.rotation)
+        obj.set_deferred("linear_velocity", Vector2.ZERO)
+        obj.set_deferred("angular_velocity", 0.0)
+    else:
+        obj.global_position = data.position
+        obj.global_rotation = data.rotation
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  RigidBody2D objects use `set_deferred()` to avoid physics conflicts when rewinding. Other objects can set properties directly.
+</Note>
+
+## Frame indexing
+
+FrameData arrays are indexed by frame number:
+
+```gdscript
+var current_frame : int = 0
+
+# Recording
+player_recordings[recording_id].append(data)  # Adds to end
+
+# Playback
+var data = player_recordings[key][current_frame]  # Access by index
+current_frame += 1
+
+# Rewinding
+current_frame -= 1 * rewind_speed
+var data = player_recordings[recording_id][current_frame]
+```
+
+<Warning>
+  Ensure you check array bounds before accessing frame data:
+  
+  ```gdscript
+  if player_recordings[key].size() <= current_frame:
+      continue
+  ```
+</Warning>
+
+## Performance considerations
+
+### Memory usage
+
+Each FrameData instance stores:
+- 2 floats (Vector2 position) = 8 bytes
+- 1 float (rotation) = 4 bytes
+- 1 bool (flip_h) = 1 byte
+- 1 String (animation_name) = ~16+ bytes
+- 1 int (animation_frame) = 4 bytes
+
+**Total**: ~33+ bytes per frame
+
+At 60 FPS with a 5-second recording:
+```
+60 fps × 5 seconds × 33 bytes = 9,900 bytes per recording (~10 KB)
+```
+
+<Note>
+  Multiple recordings and objects scale memory usage linearly. With 5 recordings and 10 objects:
+  
+  ```
+  5 recordings × 10 KB = 50 KB (players)
+  10 objects × 10 KB = 100 KB (objects)
+  Total ≈ 150 KB
+  ```
+</Note>
+
+### Optimization tips
+
+1. **Limit recording duration** - Use `recording_time` export variable to cap frame count
+2. **Clear old recordings** - Call `player_recordings[id].clear()` before re-recording
+3. **Skip animation data for objects** - Objects use empty animation fields to save memory
+4. **Use recording IDs strategically** - Reuse IDs to overwrite old recordings
+
+## Extension ideas
+
+You can extend FrameData to capture additional state:
+
+```gdscript
+@export var velocity : Vector2  # For accurate physics replay
+@export var scale : Vector2     # For size changes
+@export var modulate : Color    # For color effects
+@export var visible : bool      # For visibility toggles
+```
+
+<Warning>
+  Adding more properties increases memory usage per frame. Profile your game to ensure performance remains acceptable.
+</Warning>

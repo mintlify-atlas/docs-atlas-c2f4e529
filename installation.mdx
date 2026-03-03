@@ -1,0 +1,203 @@
+---
+title: Installation
+description: Set up Playback in your Godot project and learn about the framework structure
+---
+
+# Installation
+
+Get Playback up and running in your Godot project.
+
+## Prerequisites
+
+Before installing Playback, ensure you have:
+
+- **Godot 4.4 or later**: Playback uses modern GDScript features and the Godot 4 API
+- **Basic Godot knowledge**: Familiarity with scenes, nodes, and GDScript
+- **Git** (optional): For cloning the repository
+
+<Warning>
+  Playback is built for Godot 4.4+ and is not compatible with Godot 3.x. Make sure you're using the correct version.
+</Warning>
+
+## Installation steps
+
+<Steps>
+  <Step title="Clone or download the repository">
+    Clone the Playback repository to your local machine:
+
+    ```bash
+    git clone <repository-url> playback
+    cd playback
+    ```
+
+    Alternatively, download the source code as a ZIP file and extract it.
+  </Step>
+
+  <Step title="Open the project in Godot">
+    Launch Godot 4.4+ and import the project:
+
+    1. Open Godot
+    2. Click "Import"
+    3. Navigate to the `source` directory
+    4. Select the `project.godot` file
+    5. Click "Import & Edit"
+
+    <Info>
+      The first time you open the project, Godot will import all assets. This may take a few moments.
+    </Info>
+  </Step>
+
+  <Step title="Verify the installation">
+    Once the project opens, verify that the autoload singletons are configured:
+
+    1. Go to **Project > Project Settings**
+    2. Navigate to the **Autoload** tab
+    3. Confirm these entries exist:
+       - `AudioManager` → `res://Scenes/audio_manager.tscn`
+       - `GameManager` → `res://Scenes/game_manager.tscn`
+
+    Both should be marked with an asterisk (*) indicating they're enabled.
+  </Step>
+
+  <Step title="Test the project">
+    Run the project by pressing F5 or clicking the play button. You should see Level 1 load with the player character ready to move.
+
+    Test the controls:
+    - **A/D or Arrow Keys**: Move left/right
+    - **Space/W/Up**: Charge and jump
+    - **E**: Start recording
+    - **P**: Playback recording as ghost
+    - **Q**: Pause playback
+  </Step>
+</Steps>
+
+## Project structure
+
+Understanding the Playback project structure will help you navigate the codebase:
+
+```
+source/
+├── Assets/           # Sprites, tilesets, fonts, and audio
+├── Scenes/           # Scene files (.tscn) and scene-specific scripts
+│   ├── player.tscn
+│   ├── recording_manager.tscn
+│   ├── recording_trigger.tscn
+│   ├── ghost.tscn
+│   ├── level_*.tscn
+│   └── ...
+├── Scripts/          # Core GDScript files
+│   ├── recording_manager.gd
+│   ├── player_movement.gd
+│   ├── game_manager.gd
+│   ├── audio_manager.gd
+│   ├── Resources/
+│   │   └── FrameData.gd
+│   └── ...
+└── project.godot     # Project configuration
+```
+
+### Key directories
+
+- **Scenes/**: Contains all scene files and some scene-specific scripts. Important scenes include `player.tscn`, `recording_manager.tscn`, and the level scenes.
+- **Scripts/**: Core logic and reusable classes. The main systems (recording, player movement, managers) live here.
+- **Assets/**: All game assets organized by type (tileMaps, UI, audio, etc.)
+
+## Autoload singletons
+
+Playback uses two autoloaded singletons that are available throughout your project:
+
+### GameManager
+
+**Location**: `Scenes/game_manager.tscn` → `Scripts/game_manager.gd`
+
+The GameManager controls global game state and player input:
+
+```gdscript
+# Check if player has control
+if GameManager.userHasControl:
+    # Process player input
+    pass
+
+# Disable player control during cutscenes or rewind
+GameManager.playerControl(false)
+
+# Check if player is currently rewinding
+if GameManager.playerIsRewinding:
+    # Adjust UI or gameplay
+    pass
+
+# Reload the current scene
+GameManager.reaload_scene()
+
+# Load a different scene
+GameManager.load_scene("res://Scenes/level_2.tscn")
+```
+
+<Tip>
+  Use `GameManager.userHasControl` to check if the player should be able to provide input. The recording system automatically manages this flag during recording and playback.
+</Tip>
+
+### AudioManager
+
+**Location**: `Scenes/audio_manager.tscn` → `Scripts/audio_manager.gd`
+
+The AudioManager provides a simple interface for playing sound effects with automatic pitch randomization:
+
+```gdscript
+# Play a sound effect
+AudioManager.play_sound(AudioResource.SoundEffect.PLAYER_JUMP)
+```
+
+Sound effects are defined as `AudioResource` objects with configurable volume and pitch randomization ranges. The AudioManager automatically creates and cleans up `AudioStreamPlayer` nodes.
+
+## Configuration
+
+Playback's core configuration is defined in `project.godot`:
+
+### Display settings
+
+```ini
+[display]
+window/size/viewport_width=1920
+window/size/viewport_height=1080
+window/stretch/aspect="expand"
+window/stretch/scale_mode="integer"
+```
+
+### Global groups
+
+Playback uses Godot groups to identify special objects:
+
+```ini
+[global_group]
+button_interact=""          # Objects that can be interacted with
+player="spieler"            # The player character
+rewindables="objects tracked by recording manager"
+ghosts="geister"            # Ghost replay instances
+```
+
+<Info>
+  Add any object to the `rewindables` group to have it automatically tracked by the RecordingManager. This works for both CharacterBody2D and RigidBody2D objects.
+</Info>
+
+### Physics settings
+
+```ini
+[physics]
+common/physics_interpolation=true
+```
+
+Physics interpolation is enabled for smoother visual playback at varying frame rates.
+
+## Next steps
+
+Now that Playback is installed, you're ready to start building:
+
+<CardGroup cols={2}>
+  <Card title="Quickstart guide" icon="rocket" href="/quickstart">
+    Build your first level with recording and playback
+  </Card>
+  <Card title="Core systems" icon="gear" href="/core/recording-system">
+    Learn about the recording and replay systems in depth
+  </Card>
+</CardGroup>
