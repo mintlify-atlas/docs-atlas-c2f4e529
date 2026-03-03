@@ -1,0 +1,73 @@
+{
+  "projectType": "general",
+  "projectName": "Playback",
+  "projectDescription": "A Godot 2D puzzle-platformer framework featuring time-rewind mechanics and ghost replay system",
+  "theme": "palm",
+  "primaryColor": "#8B5CF6",
+  "lightColor": "#A78BFA",
+  "darkColor": "#6D28D9",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get Started",
+        "pages": [
+          "introduction",
+          "installation",
+          "quickstart"
+        ]
+      },
+      {
+        "group": "Core Systems",
+        "pages": [
+          "core/recording-system",
+          "core/playback-system",
+          "core/rewind-mechanics",
+          "core/game-manager"
+        ]
+      },
+      {
+        "group": "Components",
+        "pages": [
+          "components/player-movement",
+          "components/ghost-system",
+          "components/frame-data",
+          "components/recording-triggers"
+        ]
+      },
+      {
+        "group": "Guides",
+        "pages": [
+          "guides/creating-levels",
+          "guides/rewindable-objects",
+          "guides/audio-integration"
+        ]
+      },
+      {
+        "group": "API Reference",
+        "pages": [
+          "api/recording-manager",
+          "api/player-movement",
+          "api/game-manager",
+          "api/frame-data"
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Frame-by-frame recording system for player and object states",
+    "Ghost replay system for visualizing previous recordings",
+    "Time rewind mechanics with configurable speed",
+    "Platformer movement with charging jump mechanic",
+    "Multi-level support with recording triggers",
+    "Audio integration with AudioManager"
+  ],
+  "publicApiSurface": [
+    "RecordingManager - Core recording/playback/rewind system",
+    "FrameData - Resource for storing frame state data",
+    "PlayerMovement - Character controller with platformer physics",
+    "GameManager - Global game state and control management",
+    "Recording_Body - Ghost entity for replay visualization",
+    "RecordingTrigger - Trigger nodes for starting recordings",
+    "AudioManager - Global audio playback system"
+  ]
+}
